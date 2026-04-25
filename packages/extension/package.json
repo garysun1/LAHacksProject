@@ -1,0 +1,21 @@
+{
+  "name": "@megaplan/extension",
+  "version": "0.0.1",
+  "private": true,
+  "main": "dist/extension.js",
+  "types": "dist/extension.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@megaplan/shared": "0.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}

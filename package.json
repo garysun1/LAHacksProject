@@ -1,0 +1,68 @@
+{
+  "name": "megaplan",
+  "displayName": "Megaplan",
+  "description": "A graph-based VS Code collaboration surface for agent planning, execution, and review.",
+  "version": "0.0.1",
+  "private": true,
+  "publisher": "garysun",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=20.0.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./packages/extension/dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "megaplan.openPanel",
+        "title": "Megaplan: Open Panel"
+      }
+    ],
+    "configuration": {
+      "title": "Megaplan",
+      "properties": {
+        "megaplan.bridgeBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:37241",
+          "description": "Base URL for the local Megaplan bridge-agent."
+        },
+        "megaplan.sessionId": {
+          "type": "string",
+          "default": "",
+          "description": "Optional fixed Megaplan session ID."
+        },
+        "megaplan.autoConnect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically connect to the bridge-agent when the panel opens."
+        }
+      }
+    }
+  },
+  "workspaces": [
+    "packages/shared",
+    "packages/extension",
+    "packages/webview",
+    "packages/bridge-agent"
+  ],
+  "scripts": {
+    "build:shared": "npm --workspace @megaplan/shared run build",
+    "build:webview": "npm --workspace @megaplan/webview run build",
+    "build:extension": "npm --workspace @megaplan/extension run build",
+    "build:bridge": "npm --workspace @megaplan/bridge-agent run build",
+    "build": "npm run build:shared && npm run build:webview && npm run build:extension && npm run build:bridge",
+    "compile": "npm run build",
+    "lint": "npm run typecheck",
+    "typecheck": "npm --workspace @megaplan/shared run typecheck && npm --workspace @megaplan/webview run typecheck && npm --workspace @megaplan/extension run typecheck && npm --workspace @megaplan/bridge-agent run typecheck",
+    "test": "npm --workspace @megaplan/shared run test && npm --workspace @megaplan/extension run test && npm --workspace @megaplan/bridge-agent run test",
+    "bridge": "npm --workspace @megaplan/bridge-agent run dev"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}
