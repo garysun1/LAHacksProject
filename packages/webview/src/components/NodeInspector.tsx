@@ -50,8 +50,6 @@ export function NodeInspector({ node, graphs, toolUses, onCommand }: Props): JSX
               <small>{alternative.tradeoffs.join(' · ')}</small>
               <span className="row-actions">
                 <button type="button" onClick={() => onCommand({ type: 'selectAlternative', nodeId: node.id, alternativeId: alternative.id })}>Select</button>
-                <button type="button" onClick={() => onCommand({ type: 'promoteAlternative', nodeId: node.id, alternativeId: alternative.id })}>Promote to subgraph</button>
-                {alternative.promotedGraphId ? <button type="button" onClick={() => onCommand({ type: 'focusGraph', graphId: alternative.promotedGraphId })}>Open graph</button> : null}
               </span>
             </div>
           ))}

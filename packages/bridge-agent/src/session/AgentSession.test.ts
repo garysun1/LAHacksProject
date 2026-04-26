@@ -82,6 +82,81 @@ describe('AgentSession', () => {
     await expect(fs.readFile(path.join(workspaceRoot, 'src/generated.ts'), 'utf8')).resolves.toBe('export const generated = true;\n');
     expect(session.getSnapshot().pendingToolUses?.[0]?.status).toBe('applied');
     expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')?.status).toBe('completed');
+    expect(session.getSnapshot().activeNodeId).toBeUndefined();
+  });
+
+  it('resumes a graph run at the next node after approving a graph-run tool use', async () => {
+    const workspaceRoot = await makeTempWorkspace();
+    const events: BridgeEvent[] = [];
+    let executionCount = 0;
+    const agent = createAgent({
+      planNodes: [
+        planNode({ id: 'first', title: 'Write generated file', order: 1, abstraction: 'terminal' }),
+        planNode({ id: 'second', title: 'Validate generated file', kind: 'review', order: 2, abstraction: 'terminal' })
+      ],
+      planEdges: [{ id: 'first-second', source: 'first', target: 'second', kind: 'sequence' }],
+      execution: completedExecution(),
+      executeNode: async (node) => {
+        executionCount += 1;
+
+        if (node.id === 'first') {
+          return {
+            summary: 'Patch is ready.',
+            rationale: 'The file should be written after approval.',
+            confidence: 0.7,
+            observations: [],
+            proposedPatch: {
+              path: 'src/resume.ts',
+              content: 'export const resume = true;\n',
+              description: 'Create resume file.'
+            }
+          };
+        }
+
+        return completedExecution();
+      }
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'startTask',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      task: 'Create file',
+      workspaceRoot
+    });
+    await session.handleCommand({
+      type: 'runGraph',
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      graphId: 'root'
+    });
+
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'first')?.status).toBe('blocked');
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'second')?.status).toBe('pending');
+
+    const approval = session.getSnapshot().pendingToolUses?.[0];
+    await session.handleCommand({
+      type: 'approveToolUse',
+      commandId: 'cmd-3',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      toolUseId: approval?.id ?? ''
+    });
+
+    await expect(fs.readFile(path.join(workspaceRoot, 'src/resume.ts'), 'utf8')).resolves.toBe('export const resume = true;\n');
+    expect(session.getSnapshot().nodes.map((node) => [node.id, node.status])).toEqual([
+      ['first', 'completed'],
+      ['second', 'completed']
+    ]);
+    expect(executionCount).toBe(2);
+    expect(events.filter((event) => event.type === 'approvalRequested')).toHaveLength(1);
+    const activeNodeIds = events
+      .filter((event): event is Extract<BridgeEvent, { type: 'activeNodeChanged' }> => event.type === 'activeNodeChanged')
+      .map((event) => event.activeNodeId);
+    expect(activeNodeIds.lastIndexOf('second')).toBeGreaterThan(activeNodeIds.indexOf('first'));
   });
 
   it('rejects tool use through bridge events and invalidates downstream nodes', async () => {
@@ -136,6 +211,208 @@ describe('AgentSession', () => {
     await expect(fs.readFile(path.join(workspaceRoot, 'src/rejected.ts'), 'utf8')).rejects.toThrow();
   });
 
+  it('selects an alternative by replacing the displayed node details', async () => {
+    const events: BridgeEvent[] = [];
+    const agent = createAgent({
+      planNode: planNode({
+        kind: 'decision',
+        alternatives: [
+          { id: 'fast', title: 'Fast path', summary: 'Ship the smallest safe change.', tradeoffs: ['Lower scope'], recommended: true },
+          { id: 'deep', title: 'Deep path', summary: 'Refactor the underlying module.', tradeoffs: ['More complete', 'More risk'] }
+        ]
+      }),
+      execution: completedExecution()
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'startTask',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      task: 'Choose approach'
+    });
+    await session.handleCommand({
+      type: 'selectAlternative',
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      nodeId: 'node-1',
+      alternativeId: 'deep'
+    });
+
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')).toMatchObject({
+      title: 'Deep path',
+      summary: 'Refactor the underlying module.',
+      rationale: 'Selected alternative tradeoffs: More complete · More risk',
+      selectedAlternativeId: 'deep',
+      alternatives: [
+        expect.objectContaining({ id: 'fast' }),
+        expect.objectContaining({ id: 'deep', status: 'selected' })
+      ]
+    });
+    expect(events.some((event) => event.type === 'graphsUpdated')).toBe(false);
+    expect(events.some((event) => event.type === 'nodesAdded' && event.nodes.some((node) => node.graphId === 'graph-node-1-alt-deep'))).toBe(false);
+  });
+
+  it('keeps pending approval usable after selecting an alternative on the blocked node', async () => {
+    const workspaceRoot = await makeTempWorkspace();
+    const events: BridgeEvent[] = [];
+    const agent = createAgent({
+      planNode: planNode({
+        alternatives: [
+          { id: 'small', title: 'Small patch', summary: 'Apply the small patch.', tradeoffs: ['Less surface area'] },
+          { id: 'large', title: 'Large patch', summary: 'Apply the broader patch.', tradeoffs: ['More coverage'] }
+        ]
+      }),
+      execution: {
+        summary: 'Patch is ready.',
+        rationale: 'The file should be written after approval.',
+        confidence: 0.7,
+        observations: [],
+        proposedPatch: {
+          path: 'src/alternative.ts',
+          content: 'export const alternative = true;\n',
+          description: 'Create alternative file.'
+        }
+      }
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'startTask',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      task: 'Create file',
+      workspaceRoot
+    });
+    await session.handleCommand({
+      type: 'runGraph',
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      graphId: 'root'
+    });
+
+    const approval = events.find((event): event is Extract<BridgeEvent, { type: 'approvalRequested' }> => event.type === 'approvalRequested');
+    await session.handleCommand({
+      type: 'selectAlternative',
+      commandId: 'cmd-3',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      nodeId: 'node-1',
+      alternativeId: 'large'
+    });
+
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')).toMatchObject({
+      title: 'Large patch',
+      summary: 'Apply the broader patch.',
+      status: 'blocked',
+      selectedAlternativeId: 'large'
+    });
+    expect(session.getSnapshot().pendingToolUses?.[0]).toMatchObject({
+      id: approval?.toolUse.id,
+      nodeId: 'node-1',
+      status: 'pending'
+    });
+
+    await session.handleCommand({
+      type: 'approveToolUse',
+      commandId: 'cmd-4',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:03.000Z',
+      toolUseId: approval?.toolUse.id ?? ''
+    });
+
+    await expect(fs.readFile(path.join(workspaceRoot, 'src/alternative.ts'), 'utf8')).resolves.toBe('export const alternative = true;\n');
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')?.status).toBe('completed');
+    expect(session.getSnapshot().activeNodeId).toBeUndefined();
+  });
+
+  it('resumes the graph after selecting an alternative and approving its graph-run tool use', async () => {
+    const workspaceRoot = await makeTempWorkspace();
+    const events: BridgeEvent[] = [];
+    const agent = createAgent({
+      planNodes: [
+        planNode({
+          id: 'first',
+          title: 'Write selected file',
+          order: 1,
+          abstraction: 'terminal',
+          alternatives: [
+            { id: 'small', title: 'Small patch', summary: 'Apply the small patch.', tradeoffs: ['Less surface area'] },
+            { id: 'large', title: 'Large patch', summary: 'Apply the broader patch.', tradeoffs: ['More coverage'] }
+          ]
+        }),
+        planNode({ id: 'second', title: 'Validate selected file', kind: 'review', order: 2, abstraction: 'terminal' })
+      ],
+      planEdges: [{ id: 'first-second', source: 'first', target: 'second', kind: 'sequence' }],
+      execution: completedExecution(),
+      executeNode: async (node) => {
+        if (node.id === 'first') {
+          return {
+            summary: 'Patch is ready.',
+            rationale: 'The file should be written after approval.',
+            confidence: 0.7,
+            observations: [],
+            proposedPatch: {
+              path: 'src/selected-alternative.ts',
+              content: 'export const selectedAlternative = true;\n',
+              description: 'Create selected alternative file.'
+            }
+          };
+        }
+
+        return completedExecution();
+      }
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'startTask',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      task: 'Create file',
+      workspaceRoot
+    });
+    await session.handleCommand({
+      type: 'runGraph',
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      graphId: 'root'
+    });
+
+    const approval = session.getSnapshot().pendingToolUses?.[0];
+    await session.handleCommand({
+      type: 'selectAlternative',
+      commandId: 'cmd-3',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      nodeId: 'first',
+      alternativeId: 'large'
+    });
+    await session.handleCommand({
+      type: 'approveToolUse',
+      commandId: 'cmd-4',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:03.000Z',
+      toolUseId: approval?.id ?? ''
+    });
+
+    expect(session.getSnapshot().nodes.map((node) => [node.id, node.status])).toEqual([
+      ['first', 'completed'],
+      ['second', 'completed']
+    ]);
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'first')).toMatchObject({
+      title: 'Large patch',
+      selectedAlternativeId: 'large'
+    });
+    await expect(fs.readFile(path.join(workspaceRoot, 'src/selected-alternative.ts'), 'utf8')).resolves.toBe('export const selectedAlternative = true;\n');
+  });
+
   it('repairs cyclic root proposal edges into ordered sequence edges', async () => {
     const events: BridgeEvent[] = [];
     const agent = createAgent({
@@ -171,6 +448,111 @@ describe('AgentSession', () => {
         ]
       }
     });
+  });
+
+  it('runs the displayed graph in order while highlighting completed nodes', async () => {
+    const events: BridgeEvent[] = [];
+    const agent = createAgent({
+      planNodes: [
+        planNode({ id: 'first', title: 'Review completed setup', status: 'completed', order: 1, abstraction: 'terminal' }),
+        planNode({ id: 'second', title: 'Implement remaining change', order: 2, abstraction: 'terminal' })
+      ],
+      planEdges: [{ id: 'first-second', source: 'first', target: 'second', kind: 'sequence' }],
+      execution: completedExecution()
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'constructGraph',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      graphId: 'root',
+      instructions: 'Create ordered plan'
+    });
+    await session.handleCommand({
+      type: 'runGraph',
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      graphId: 'root'
+    });
+
+    const activeNodeIds = events
+      .filter((event): event is Extract<BridgeEvent, { type: 'activeNodeChanged' }> => event.type === 'activeNodeChanged')
+      .map((event) => event.activeNodeId);
+    expect(activeNodeIds).toEqual(expect.arrayContaining(['first', 'second']));
+    expect(activeNodeIds.indexOf('first')).toBeLessThan(activeNodeIds.indexOf('second'));
+    expect(session.getSnapshot().nodes.map((node) => [node.id, node.status])).toEqual([
+      ['first', 'completed'],
+      ['second', 'completed']
+    ]);
+  });
+
+  it('enters a populated child graph while running the displayed graph', async () => {
+    const events: BridgeEvent[] = [];
+    const agent = createAgent({
+      planNodes: [
+        planNode({ id: 'parent', title: 'Implement parent step', status: 'completed', expandable: true, abstraction: 'decomposable', order: 1 }),
+        planNode({ id: 'sibling', title: 'Validate parent step', kind: 'review', order: 2, abstraction: 'terminal' })
+      ],
+      planEdges: [{ id: 'parent-sibling', source: 'parent', target: 'sibling', kind: 'sequence' }],
+      execution: completedExecution()
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'constructGraph',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      graphId: 'root',
+      instructions: 'Create ordered plan'
+    });
+
+    const snapshot = session.getSnapshot();
+    const now = '2026-01-01T00:00:01.000Z';
+    snapshot.graphs?.push({
+      id: 'graph-parent',
+      title: 'Implement parent step',
+      parentNodeId: 'parent',
+      status: 'idle',
+      createdAt: now,
+      updatedAt: now
+    });
+    Object.assign(snapshot.nodes.find((node) => node.id === 'parent') ?? {}, {
+      childGraphId: 'graph-parent',
+      expanded: true
+    });
+    snapshot.nodes.push(
+      planNode({ id: 'child-a', title: 'Inspect parent implementation', graphId: 'graph-parent', parentId: 'parent', status: 'completed', order: 1, abstraction: 'terminal' }),
+      planNode({ id: 'child-b', title: 'Update parent implementation', graphId: 'graph-parent', parentId: 'parent', order: 2, abstraction: 'terminal' })
+    );
+    snapshot.edges.push({ id: 'sequence-child-a-child-b', source: 'child-a', target: 'child-b', kind: 'sequence' });
+
+    await session.handleCommand({
+      type: 'runGraph',
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      graphId: 'root'
+    });
+
+    const focusedGraphIds = events
+      .filter((event): event is Extract<BridgeEvent, { type: 'graphFocused' }> => event.type === 'graphFocused')
+      .map((event) => event.graphId);
+    expect(focusedGraphIds).toEqual(expect.arrayContaining(['graph-parent', 'root']));
+    expect(focusedGraphIds.indexOf('graph-parent')).toBeLessThan(focusedGraphIds.lastIndexOf('root'));
+
+    const activeNodeIds = events
+      .filter((event): event is Extract<BridgeEvent, { type: 'activeNodeChanged' }> => event.type === 'activeNodeChanged')
+      .map((event) => event.activeNodeId);
+    expect(activeNodeIds).toEqual(expect.arrayContaining(['parent', 'child-a', 'child-b', 'sibling']));
+    expect(activeNodeIds.indexOf('child-a')).toBeLessThan(activeNodeIds.indexOf('child-b'));
+    expect(activeNodeIds.indexOf('child-b')).toBeLessThan(activeNodeIds.indexOf('sibling'));
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'child-b')?.status).toBe('completed');
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'sibling')?.status).toBe('completed');
+    expect(session.getSnapshot().focusedGraphId).toBe('root');
   });
 
   it('replaces non-coding root proposals with coding-agent phases when the model is configured', async () => {
@@ -757,6 +1139,7 @@ function createAgent({
   decomposeNodes = [],
   decomposeEdges = [],
   decomposeNode,
+  executeNode,
   execution
 }: {
   configured?: boolean;
@@ -766,13 +1149,14 @@ function createAgent({
   decomposeNodes?: MegaplanNode[];
   decomposeEdges?: MegaplanEdge[];
   decomposeNode?: OpenAiAgent['decomposeNode'];
+  executeNode?: OpenAiAgent['executeNode'];
   execution: Awaited<ReturnType<OpenAiAgent['executeNode']>>;
 }): OpenAiAgent {
   return {
     configured,
     planTask: async () => ({ nodes: planNodes ?? (planNode ? [planNode] : []), edges: planEdges }),
     decomposeNode: decomposeNode ?? (async () => ({ nodes: decomposeNodes, edges: decomposeEdges })),
-    executeNode: async () => execution
+    executeNode: executeNode ?? (async () => execution)
   } as unknown as OpenAiAgent;
 }
 

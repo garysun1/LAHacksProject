@@ -323,8 +323,7 @@ function executionResultTool(): OpenAI.Chat.Completions.ChatCompletionTool {
                 summary: { type: 'string' },
                 tradeoffs: { type: 'array', items: { type: 'string' } },
                 recommended: { type: 'boolean' },
-                status: { enum: ['candidate', 'selected', 'rejected'] },
-                promotedGraphId: { type: 'string' }
+                status: { enum: ['candidate', 'selected', 'rejected'] }
               }
             }
           }

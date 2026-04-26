@@ -14,8 +14,7 @@ export const decisionAlternativeSchema = z.object({
   summary: z.string(),
   tradeoffs: z.array(z.string()),
   recommended: z.boolean().optional(),
-  status: alternativeStatusSchema.optional(),
-  promotedGraphId: z.string().optional()
+  status: alternativeStatusSchema.optional()
 });
 
 export const megaplanGraphScopeSchema = z.object({
@@ -205,7 +204,6 @@ export const humanCommandSchema = z.discriminatedUnion('type', [
   humanCommandBaseSchema.extend({ type: z.literal('deleteNode'), nodeId: z.string().min(1) }),
   humanCommandBaseSchema.extend({ type: z.literal('pinNode'), nodeId: z.string().min(1), pinned: z.boolean() }),
   humanCommandBaseSchema.extend({ type: z.literal('selectAlternative'), nodeId: z.string().min(1), alternativeId: z.string().min(1) }),
-  humanCommandBaseSchema.extend({ type: z.literal('promoteAlternative'), nodeId: z.string().min(1), alternativeId: z.string().min(1) }),
   humanCommandBaseSchema.extend({ type: z.literal('approveNode'), nodeId: z.string().min(1) }),
   humanCommandBaseSchema.extend({ type: z.literal('rejectNode'), nodeId: z.string().min(1), reason: z.string().optional() }),
   humanCommandBaseSchema.extend({ type: z.literal('approveToolUse'), toolUseId: z.string().min(1) }),

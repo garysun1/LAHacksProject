@@ -23,7 +23,6 @@ export type DecisionAlternative = {
   tradeoffs: string[];
   recommended?: boolean;
   status?: AlternativeStatus;
-  promotedGraphId?: string;
 };
 
 export type MegaplanGraphScope = {
@@ -240,7 +239,6 @@ export type HumanCommand =
   | (HumanCommandBase & { type: 'deleteNode'; nodeId: string })
   | (HumanCommandBase & { type: 'pinNode'; nodeId: string; pinned: boolean })
   | (HumanCommandBase & { type: 'selectAlternative'; nodeId: string; alternativeId: string })
-  | (HumanCommandBase & { type: 'promoteAlternative'; nodeId: string; alternativeId: string })
   | (HumanCommandBase & { type: 'approveNode'; nodeId: string })
   | (HumanCommandBase & { type: 'rejectNode'; nodeId: string; reason?: string })
   | (HumanCommandBase & { type: 'approveToolUse'; toolUseId: string })

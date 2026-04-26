@@ -70,6 +70,10 @@ export function App(): JSX.Element {
     postMessage({ type: 'command', command: command as Omit<HumanCommand, 'commandId' | 'sessionId' | 'timestamp'> });
   }, []);
 
+  const toggleSelectedNode = useCallback((nodeId: string) => {
+    setSelectedNodeId((currentNodeId) => currentNodeId === nodeId ? undefined : nodeId);
+  }, []);
+
   const isRootGraph = focusedGraphId === (snapshot.rootGraphId ?? 'root');
   const isFocusedGraphEmpty = focusedNodes.length === 0;
 
@@ -91,8 +95,14 @@ export function App(): JSX.Element {
       return;
     }
 
+    const firstNode = [...focusedNodes].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))[0];
+
+    if (firstNode) {
+      setSelectedNodeId(firstNode.id);
+    }
+
     sendCommand({ type: 'runGraph', graphId: focusedGraphId });
-  }, [focusedGraphId, isFocusedGraphEmpty, isRootGraph, selectedNode, sendCommand, task]);
+  }, [focusedGraphId, focusedNodes, isFocusedGraphEmpty, isRootGraph, selectedNode, sendCommand, task]);
 
   const primaryActionLabel = isFocusedGraphEmpty ? 'Construct' : selectedNode ? 'Run node' : 'Run graph';
   const taskPlaceholder = isFocusedGraphEmpty
@@ -153,7 +163,7 @@ export function App(): JSX.Element {
             snapshot={focusedSnapshot}
             selectedNodeId={selectedNodeId}
             impactedNodeIds={impactedNodeIds}
-            onSelectNode={setSelectedNodeId}
+            onSelectNode={toggleSelectedNode}
             onOpenNodeGraph={(nodeId) => sendCommand({ type: 'openNodeGraph', nodeId })}
           />
         </div>
