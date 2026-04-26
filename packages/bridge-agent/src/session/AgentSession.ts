@@ -6,6 +6,19 @@ import { listWorkspaceFiles, writeWorkspaceFile } from '../tools/workspaceTools'
 export type PublishEvent = (event: BridgeEvent) => void;
 
 const ROOT_GRAPH_ID = 'root';
+const CODING_TERMS = ['add', 'api', 'auth', 'backend', 'bridge', 'build', 'command', 'compile', 'component', 'config', 'create', 'css', 'database', 'debug', 'dependency', 'edit', 'endpoint', 'extension', 'file', 'fix', 'frontend', 'hook', 'implement', 'inspect', 'interface', 'javascript', 'locate', 'node', 'npm', 'package', 'patch', 'prompt', 'react', 'read', 'reducer', 'refactor', 'render', 'route', 'run', 'schema', 'service', 'session', 'state', 'style', 'test', 'tsx', 'type', 'typecheck', 'typescript', 'ui', 'update', 'validate', 'vite', 'webview', 'wire', 'workspace', 'write'];
+const GENERIC_PLANNING_TERMS = ['analyze', 'assess', 'categorize', 'clarify', 'conduct', 'define', 'determine', 'engage', 'establish', 'explore', 'gather', 'identify', 'outline', 'plan', 'research', 'review', 'understand'];
+const NON_CODING_TERMS = ['business plan', 'competitor', 'customer discovery', 'go-to-market', 'interview', 'market research', 'marketing', 'persona', 'pricing', 'project boundary', 'project goal', 'project scope', 'revenue', 'sales', 'stakeholder', 'survey'];
+const RESEARCH_SCOPE_TERMS = ['ai model survey', 'architecture research', 'best practices', 'compare frameworks', 'compare technologies', 'conceptual analysis', 'current ai technologies', 'evaluate technologies', 'evaluate transformers', 'literature review', 'model architecture', 'model architectures', 'paper', 'papers', 'read papers', 'research', 'review papers', 'survey models', 'technology comparison', 'transformer architecture', 'transformer architectures', 'transformer component', 'transformer components', 'transformer model', 'transformer papers'];
+const IMPLEMENTATION_ANCHOR_TERMS = ['api', 'app', 'code', 'component', 'endpoint', 'file', 'implement', 'integration', 'route', 'schema', 'service', 'test', 'ui', 'wire'];
+const EXPLICIT_NON_CODING_TERMS = ['business plan', 'customer discovery', 'go-to-market', 'interview stakeholders', 'market research', 'marketing plan', 'sales strategy', 'stakeholder analysis', 'user research'];
+const STOP_WORDS = new Set(['a', 'an', 'and', 'as', 'for', 'in', 'into', 'of', 'on', 'or', 'the', 'to', 'with']);
+
+type DecompositionContextInfo = {
+  nodeDepth: number;
+  ancestors: MegaplanNode[];
+  siblings: MegaplanNode[];
+};
 
 export class AgentSession {
   private snapshot: MegaplanGraphSnapshot;
@@ -29,16 +42,25 @@ export class AgentSession {
   async handleCommand(command: HumanCommand): Promise<void> {
     switch (command.type) {
       case 'startTask':
-        await this.startTask(command.task, command.workspaceRoot);
+        await this.constructRootGraph(command.task, command.workspaceRoot);
         break;
       case 'decomposeNode':
-        await this.decomposeNode(command.nodeId);
+        this.openNodeGraph(command.nodeId);
+        break;
+      case 'openNodeGraph':
+        this.openNodeGraph(command.nodeId);
+        break;
+      case 'constructGraph':
+        await this.constructGraph(command.graphId ?? this.snapshot.focusedGraphId ?? this.snapshot.rootGraphId ?? ROOT_GRAPH_ID, command.instructions, command.workspaceRoot);
         break;
       case 'focusGraph':
         this.focusGraph(command.graphId);
         break;
       case 'runGraph':
         await this.runGraph(command.graphId ?? this.snapshot.focusedGraphId ?? this.snapshot.rootGraphId ?? ROOT_GRAPH_ID);
+        break;
+      case 'runNode':
+        await this.runNode(command.nodeId);
         break;
       case 'reorderNodes':
         this.reorderNodes(command.orderedNodeIds, command.parentId);
@@ -80,8 +102,15 @@ export class AgentSession {
     }
   }
 
-  private async startTask(task: string, workspaceRoot?: string): Promise<void> {
+  private async constructRootGraph(task: string, workspaceRoot?: string): Promise<void> {
     this.workspaceRoot = workspaceRoot;
+    const trimmedTask = task.trim();
+
+    if (!trimmedTask) {
+      this.emitAgentError('Cannot construct the root graph without instructions.', true);
+      return;
+    }
+
     const createdAt = new Date().toISOString();
     this.snapshot = {
       ...createEmptySnapshot(this.sessionId),
@@ -89,12 +118,13 @@ export class AgentSession {
       updatedAt: createdAt,
       rootGraphId: ROOT_GRAPH_ID,
       focusedGraphId: ROOT_GRAPH_ID,
-      graphs: [this.createGraphScope(ROOT_GRAPH_ID, task, undefined, createdAt)],
-      task
+      graphs: [this.createGraphScope(ROOT_GRAPH_ID, trimmedTask, undefined, createdAt)],
+      task: trimmedTask
     };
 
-    const proposal = await this.agent.planTask(this.sessionId, task);
-    const nodes = this.normalizeNodes(proposal.nodes, ROOT_GRAPH_ID);
+    const proposal = await this.agent.planTask(this.sessionId, trimmedTask);
+    const proposedNodes = this.normalizeNodes(proposal.nodes, ROOT_GRAPH_ID);
+    const nodes = this.agent.configured ? this.vetRootGraphNodes(proposedNodes, trimmedTask) : proposedNodes;
     this.snapshot = {
       ...this.snapshot,
       nodes,
@@ -110,11 +140,16 @@ export class AgentSession {
 
   }
 
-  private async decomposeNode(nodeId: string): Promise<void> {
+  private openNodeGraph(nodeId: string): string | undefined {
     const node = this.snapshot.nodes.find((candidate) => candidate.id === nodeId);
 
     if (!node) {
-      this.emitAgentError(`Cannot decompose missing node: ${nodeId}`, true);
+      this.emitAgentError(`Cannot open missing node: ${nodeId}`, true);
+      return;
+    }
+
+    if (this.isTerminalNode(node)) {
+      this.emitGraphRunState(node.graphId ?? ROOT_GRAPH_ID, 'idle', 'Terminal node.');
       return;
     }
 
@@ -125,6 +160,52 @@ export class AgentSession {
     this.emit({ type: 'graphsUpdated', upsert: [childGraph], ...this.eventBase() });
     this.updateNode(nodeId, { childGraphId: graphId, expanded: true });
     this.focusGraph(graphId);
+    return graphId;
+  }
+
+  private async constructGraph(graphId: string, instructions?: string, workspaceRoot?: string): Promise<void> {
+    if (workspaceRoot) {
+      this.workspaceRoot = workspaceRoot;
+    }
+
+    const graph = this.snapshot.graphs?.find((candidate) => candidate.id === graphId);
+
+    if (!graph) {
+      this.emitAgentError(`Cannot construct missing graph: ${graphId}`, true);
+      return;
+    }
+
+    if (this.getGraphNodes(graphId).length > 0) {
+      this.emitAgentError(`Cannot construct non-empty graph: ${graph.title}`, true);
+      this.emitGraphRunState(graphId, 'idle', 'Graph already has nodes.');
+      return;
+    }
+
+    const trimmedInstructions = instructions?.trim() ?? '';
+
+    if (!graph.parentNodeId) {
+      await this.constructRootGraph(trimmedInstructions, workspaceRoot);
+      return;
+    }
+
+    const parentNode = this.snapshot.nodes.find((node) => node.id === graph.parentNodeId);
+
+    if (!parentNode) {
+      this.emitAgentError(`Cannot construct graph without parent node: ${graphId}`, true);
+      return;
+    }
+
+    this.emitGraphRunState(graphId, 'running', 'Constructing subgraph.');
+    const constructed = await this.populateGraphFromNode(parentNode, graphId, trimmedInstructions);
+
+    if (!constructed) {
+      this.updateNode(parentNode.id, { abstraction: 'terminal', expandable: false, expanded: false, status: 'pending', summary: 'Unambiguous terminal step; no child graph needed.' });
+      this.emitGraphRunState(graphId, 'idle', 'No child steps needed.');
+      this.focusParentGraph(parentNode);
+      return;
+    }
+
+    this.emitGraphRunState(graphId, 'idle', 'Constructed subgraph.');
   }
 
   private async promoteAlternative(nodeId: string, alternativeId: string): Promise<void> {
@@ -177,6 +258,14 @@ export class AgentSession {
     this.emit({ type: 'graphFocused', graphId, ...this.eventBase() });
   }
 
+  private focusParentGraph(node: MegaplanNode): void {
+    const parentGraphId = node.graphId ?? ROOT_GRAPH_ID;
+
+    if (this.snapshot.graphs?.some((graph) => graph.id === parentGraphId)) {
+      this.focusGraph(parentGraphId);
+    }
+  }
+
   private reorderNodes(orderedNodeIds: string[], parentId?: string): void {
     const orderById = new Map(orderedNodeIds.map((nodeId, index) => [nodeId, index + 1]));
     const patches = this.snapshot.nodes
@@ -209,6 +298,10 @@ export class AgentSession {
         }
 
         await this.executeNode(nextNode);
+
+        if (this.graphHasBlockedNodes(graphId)) {
+          break;
+        }
       }
 
       this.emitGraphRunState(graphId, this.graphHasBlockedNodes(graphId) ? 'blocked' : 'completed');
@@ -225,41 +318,171 @@ export class AgentSession {
     const graph = this.snapshot.graphs?.find((candidate) => candidate.id === graphId);
 
     if (!graph?.parentNodeId) {
-      this.emitGraphRunState(graphId, 'completed', 'No nodes to run.');
+      this.emitGraphRunState(graphId, 'idle', 'No nodes to run.');
       return true;
     }
 
-    const parentNode = this.snapshot.nodes.find((node) => node.id === graph.parentNodeId);
-
-    if (!parentNode) {
-      this.emitAgentError(`Cannot run empty graph without parent node: ${graphId}`, true);
-      this.emitGraphRunState(graphId, 'error');
-      return true;
-    }
-
-    if (this.shouldGenerateSubgraph(parentNode)) {
-      await this.populateGraphFromNode(parentNode, graphId);
-      this.emitGraphRunState(graphId, 'idle', 'Generated subgraph.');
-      return true;
-    }
-
-    await this.executeNode(parentNode, { ignoreChildGraph: true });
-
-    const updatedParent = this.snapshot.nodes.find((node) => node.id === parentNode.id);
-    this.emitGraphRunState(graphId, updatedParent?.status === 'blocked' ? 'blocked' : 'completed');
+    this.emitGraphRunState(graphId, 'idle', 'No nodes to run. Construct this graph first.');
     return true;
   }
 
-  private async populateGraphFromNode(node: MegaplanNode, graphId: string): Promise<void> {
-    const context = this.snapshot.eventLog?.slice(-20).map((event) => `${event.type}:${event.eventId}`).join('\n') ?? '';
-    const proposal = await this.agent.decomposeNode(this.sessionId, node, context);
-    const nodes = this.normalizeNodes(proposal.nodes, graphId, node.id);
+  private async runNode(nodeId: string): Promise<void> {
+    const node = this.snapshot.nodes.find((candidate) => candidate.id === nodeId);
 
-    this.emit({ type: 'nodesAdded', nodes, edges: buildSequenceEdges(nodes), ...this.eventBase() });
-    this.updateNode(node.id, { childGraphId: graphId, expanded: true, abstraction: 'decomposable' });
+    if (!node) {
+      this.emitAgentError(`Cannot run missing node: ${nodeId}`, true);
+      return;
+    }
+
+    if (this.isTerminalNode(node)) {
+      const graphId = node.graphId ?? ROOT_GRAPH_ID;
+      this.emitGraphRunState(graphId, 'running', `Running ${node.title}.`);
+      await this.runNodeSubtree(node.id);
+
+      const updatedNode = this.snapshot.nodes.find((candidate) => candidate.id === node.id);
+      this.emitGraphRunState(graphId, updatedNode?.status === 'blocked' ? 'blocked' : 'completed');
+      return;
+    }
+
+    const graphId = this.openNodeGraph(nodeId);
+
+    if (!graphId) {
+      return;
+    }
+
+    if (this.getGraphNodes(graphId).length > 0) {
+      await this.runNodeSubtree(node.id);
+
+      if (this.graphHasBlockedNodes(graphId)) {
+        return;
+      }
+
+      this.focusParentGraph(node);
+      this.emit({ type: 'activeNodeChanged', activeNodeId: node.id, ...this.eventBase() });
+      return;
+    }
+
+    if (this.shouldConstructBeforeRunning(node)) {
+      this.emitGraphRunState(graphId, 'idle', 'Construct this graph before running this node.');
+      return;
+    }
+
+    this.emitGraphRunState(graphId, 'running', `Running ${node.title}.`);
+    await this.runNodeSubtree(node.id);
+
+    const updatedNode = this.snapshot.nodes.find((candidate) => candidate.id === node.id);
+    this.emitGraphRunState(graphId, updatedNode?.status === 'blocked' ? 'blocked' : 'completed');
   }
 
-  private shouldGenerateSubgraph(node: MegaplanNode): boolean {
+  private async runNodeSubtree(nodeId: string): Promise<void> {
+    const node = this.snapshot.nodes.find((candidate) => candidate.id === nodeId);
+
+    if (!node) {
+      this.emitAgentError(`Cannot run missing node: ${nodeId}`, true);
+      return;
+    }
+
+    this.emit({ type: 'activeNodeChanged', activeNodeId: node.id, ...this.eventBase() });
+
+    if (this.isBlockedStatus(node.status)) {
+      return;
+    }
+
+    if (node.childGraphId && this.getGraphNodes(node.childGraphId).length > 0) {
+      await this.runGraphSubtree(node.childGraphId);
+      const updatedNode = this.snapshot.nodes.find((candidate) => candidate.id === node.id);
+
+      if (updatedNode) {
+        this.updateParentNodeFromChildGraph(updatedNode, node.childGraphId);
+      }
+
+      return;
+    }
+
+    if (['completed', 'approved'].includes(node.status)) {
+      return;
+    }
+
+    if (node.status === 'pending') {
+      await this.executeNode(node, { ignoreChildGraph: true });
+    }
+  }
+
+  private async runGraphSubtree(graphId: string): Promise<void> {
+    if (this.runningGraphIds.has(graphId)) {
+      return;
+    }
+
+    this.runningGraphIds.add(graphId);
+    this.emitGraphRunState(graphId, 'running');
+
+    try {
+      const nodes = this.getGraphNodes(graphId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+      if (nodes.length === 0) {
+        this.emitGraphRunState(graphId, 'completed', 'No child steps needed.');
+        return;
+      }
+
+      for (const node of nodes) {
+        const currentNode = this.snapshot.nodes.find((candidate) => candidate.id === node.id);
+
+        if (!currentNode) {
+          continue;
+        }
+
+        if (this.isBlockedStatus(currentNode.status)) {
+          this.emit({ type: 'activeNodeChanged', activeNodeId: currentNode.id, ...this.eventBase() });
+          break;
+        }
+
+        if (['completed', 'approved'].includes(currentNode.status)) {
+          await this.runNodeSubtree(currentNode.id);
+        } else if (currentNode.status === 'pending' && this.nodeDependenciesCompleted(currentNode, graphId)) {
+          await this.runNodeSubtree(currentNode.id);
+        }
+
+        if (this.graphHasBlockedNodes(graphId)) {
+          break;
+        }
+      }
+
+      this.emitGraphRunState(graphId, this.graphHasBlockedNodes(graphId) ? 'blocked' : this.graphHasPendingNodes(graphId) ? 'idle' : 'completed');
+    } finally {
+      this.runningGraphIds.delete(graphId);
+    }
+  }
+
+  private updateParentNodeFromChildGraph(node: MegaplanNode, graphId: string): void {
+    if (this.graphHasBlockedNodes(graphId)) {
+      this.updateNode(node.id, { status: 'blocked' });
+      return;
+    }
+
+    if (this.graphHasPendingNodes(graphId)) {
+      this.updateNode(node.id, { status: 'pending' });
+      return;
+    }
+
+    this.updateNode(node.id, { status: 'completed', summary: `Completed subgraph ${graphId}.` });
+  }
+
+  private async populateGraphFromNode(node: MegaplanNode, graphId: string, instructions?: string): Promise<boolean> {
+    const { context, info } = this.buildDecompositionContext(node, instructions);
+    const proposal = await this.agent.decomposeNode(this.sessionId, node, context);
+    const proposedNodes = this.normalizeNodes(proposal.nodes, graphId, node.id);
+    const nodes = this.vetDecompositionNodes(node, proposedNodes, info);
+
+    if (nodes.length === 0) {
+      return false;
+    }
+
+    this.emit({ type: 'nodesAdded', nodes, edges: buildSequenceEdges(nodes), ...this.eventBase() });
+    this.updateNode(node.id, { childGraphId: graphId, expanded: true, abstraction: 'decomposable', status: 'pending' });
+    return true;
+  }
+
+  private shouldConstructBeforeRunning(node: MegaplanNode): boolean {
     return node.expandable === true || node.abstraction === 'abstract' || node.abstraction === 'decomposable';
   }
 
@@ -267,10 +490,16 @@ export class AgentSession {
     this.emit({ type: 'activeNodeChanged', activeNodeId: node.id, ...this.eventBase() });
 
     if (node.childGraphId && !options.ignoreChildGraph) {
+      if (this.getGraphNodes(node.childGraphId).length === 0) {
+        await this.executeNode(node, { ignoreChildGraph: true });
+        return;
+      }
+
       await this.runGraph(node.childGraphId);
 
       if (this.graphHasBlockedNodes(node.childGraphId)) {
         this.updateNode(node.id, { status: 'blocked' });
+        return;
       } else if (this.graphHasPendingNodes(node.childGraphId)) {
         this.updateNode(node.id, { status: 'pending' });
       } else {
@@ -304,21 +533,8 @@ export class AgentSession {
 
     if (result.proposedPatch && this.workspaceRoot) {
       const toolUse = this.createPatchToolUse(node.id, result.proposedPatch.path, result.proposedPatch.content, result.proposedPatch.description);
-      const approvalNode: MegaplanNode = {
-        id: `${node.id}-approval-${toolUse.id}`,
-        graphId: node.graphId ?? ROOT_GRAPH_ID,
-        parentId: node.parentId,
-        title: `Approve patch: ${result.proposedPatch.path}`,
-        kind: 'approval',
-        phase: 'execution',
-        status: 'blocked',
-        confidence: result.confidence,
-        summary: result.proposedPatch.description,
-        entailedBy: [node.id]
-      };
-      this.emit({ type: 'approvalRequested', node: approvalNode, toolUse, edges: [{ id: `${node.id}-${approvalNode.id}`, source: node.id, target: approvalNode.id, kind: 'sequence' }], ...this.eventBase() });
-      this.updateNode(node.id, { status: 'blocked', summary: result.summary, rationale: result.rationale, confidence: result.confidence });
-      this.emit({ type: 'activeNodeChanged', activeNodeId: undefined, ...this.eventBase() });
+      this.emit({ type: 'approvalRequested', toolUse, ...this.eventBase() });
+      this.updateNode(node.id, { status: 'blocked', summary: `Approval required: ${toolUse.title}`, rationale: result.rationale, confidence: result.confidence });
       return;
     }
 
@@ -378,9 +594,11 @@ export class AgentSession {
           ...this.eventBase()
         });
         this.updateNode(toolUse.nodeId, { status: 'completed' });
-        this.updateEntailedApprovalNodes(toolUse.nodeId, 'approved');
         const node = this.snapshot.nodes.find((candidate) => candidate.id === toolUse.nodeId);
-        void this.runGraph(node?.graphId ?? this.snapshot.focusedGraphId ?? this.snapshot.rootGraphId ?? ROOT_GRAPH_ID);
+
+        if (node) {
+          this.refreshAncestorStatusesFrom(node);
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.updateToolUse(toolUseId, 'failed');
@@ -411,14 +629,30 @@ export class AgentSession {
     this.emit({ type: 'nodesUpdated', patches: [{ id: nodeId, patch }], ...this.eventBase() });
   }
 
-  private updateEntailedApprovalNodes(nodeId: string, status: MegaplanNode['status']): void {
-    const patches = this.snapshot.nodes
-      .filter((node) => node.kind === 'approval' && node.entailedBy?.includes(nodeId))
-      .map((node) => ({ id: node.id, patch: { status } }));
+  private refreshAncestorStatusesFrom(node: MegaplanNode): void {
+    let parentId = node.parentId;
 
-    if (patches.length > 0) {
-      this.emit({ type: 'nodesUpdated', patches, ...this.eventBase() });
+    while (parentId) {
+      const parentNode = this.snapshot.nodes.find((candidate) => candidate.id === parentId);
+
+      if (!parentNode?.childGraphId) {
+        return;
+      }
+
+      this.updateParentNodeFromChildGraph(parentNode, parentNode.childGraphId);
+      parentId = this.snapshot.nodes.find((candidate) => candidate.id === parentNode.id)?.parentId;
     }
+  }
+
+  private nodeDependenciesCompleted(node: MegaplanNode, graphId: string): boolean {
+    const completed = new Set(this.snapshot.nodes.filter((candidate) => ['completed', 'approved'].includes(candidate.status)).map((candidate) => candidate.id));
+    const graphNodeIds = new Set(this.snapshot.nodes.filter((candidate) => (candidate.graphId ?? ROOT_GRAPH_ID) === graphId).map((candidate) => candidate.id));
+    const dependencies = this.snapshot.edges.filter((edge) => graphNodeIds.has(edge.source) && edge.target === node.id);
+    return dependencies.every((edge) => completed.has(edge.source));
+  }
+
+  private isBlockedStatus(status: MegaplanNode['status']): boolean {
+    return ['blocked', 'invalidated', 'rejected'].includes(status);
   }
 
   private invalidateDownstream(nodeId: string, reason: string): void {
@@ -453,12 +687,250 @@ export class AgentSession {
   }
 
   private normalizeNodes(nodes: MegaplanNode[], graphId: string, fallbackParentId?: string): MegaplanNode[] {
-    return nodes.map((node) => ({
-      ...node,
-      graphId,
-      parentId: node.parentId ?? fallbackParentId,
-      abstraction: node.abstraction ?? (node.expandable ? 'decomposable' : 'runnable')
-    }));
+    return nodes.map((node) => {
+      const terminal = this.isTerminalNode(node);
+
+      return {
+        ...node,
+        graphId,
+        parentId: node.parentId ?? fallbackParentId,
+        summary: this.nodeSummary(node),
+        expandable: terminal ? false : node.expandable,
+        abstraction: terminal ? 'terminal' : node.abstraction ?? (node.expandable ? 'decomposable' : 'runnable')
+      };
+    });
+  }
+
+  private vetRootGraphNodes(nodes: MegaplanNode[], task: string): MegaplanNode[] {
+    const allowNonCoding = this.taskAllowsNonCoding(task);
+    const filteredNodes = this.deduplicateSimilarNodes(nodes
+      .filter((node) => allowNonCoding || !this.hasNonCodingFocus(node))
+      .filter((node) => allowNonCoding || !this.hasResearchScopeWithoutImplementationAnchor(node))
+      .filter((node) => allowNonCoding || this.looksLikeCodingAgentStep(node) || !this.looksGenericPlanningStep(node)));
+
+    if (filteredNodes.length >= 2 && (allowNonCoding || filteredNodes.some((node) => this.looksLikeCodingAgentStep(node)))) {
+      return filteredNodes;
+    }
+
+    return this.normalizeNodes(this.defaultCodingRootNodes(task), ROOT_GRAPH_ID);
+  }
+
+  private defaultCodingRootNodes(task: string): MegaplanNode[] {
+    return [
+      {
+        id: 'plan-inspect-codebase',
+        title: 'Inspect codebase and task context',
+        kind: 'task',
+        phase: 'planning',
+        status: 'pending',
+        confidence: 0.8,
+        summary: task,
+        expandable: true,
+        abstraction: 'decomposable',
+        order: 1
+      },
+      {
+        id: 'plan-design-code-changes',
+        title: 'Design implementation approach',
+        kind: 'decision',
+        phase: 'planning',
+        status: 'pending',
+        confidence: 0.7,
+        summary: 'Decide the app structure, data contracts, and code changes before implementation.',
+        expandable: true,
+        abstraction: 'decomposable',
+        order: 2
+      },
+      {
+        id: 'plan-implement-code-changes',
+        title: 'Implement code changes',
+        kind: 'action',
+        phase: 'execution',
+        status: 'pending',
+        confidence: 0.65,
+        summary: 'Modify the necessary files, components, services, and wiring for the requested app.',
+        expandable: true,
+        abstraction: 'decomposable',
+        order: 3
+      },
+      {
+        id: 'plan-validate-build',
+        title: 'Validate with tests and build',
+        kind: 'review',
+        phase: 'review',
+        status: 'pending',
+        confidence: 0.75,
+        summary: 'Run tests, typechecks, builds, and manual validation to confirm behavior.',
+        expandable: true,
+        abstraction: 'decomposable',
+        order: 4
+      }
+    ];
+  }
+
+  private buildDecompositionContext(node: MegaplanNode, instructions?: string): { context: string; info: DecompositionContextInfo } {
+    const ancestors = this.getAncestorNodes(node);
+    const siblings = this.getGraphNodes(node.graphId ?? ROOT_GRAPH_ID).filter((candidate) => candidate.id !== node.id);
+    const nodeDepth = ancestors.length;
+    const recentContext = this.snapshot.eventLog?.slice(-20).map((event) => `${event.type}:${event.eventId}`).join('\n') ?? 'None.';
+    const trimmedInstructions = instructions?.trim();
+    const context = [
+      `Original coding task:\n${this.snapshot.task ?? 'Unknown task.'}`,
+      `Current node depth: ${nodeDepth}`,
+      `Child graph depth: ${nodeDepth + 1}`,
+      `Ancestor path:\n${this.formatNodesForContext([...ancestors, node])}`,
+      `Sibling nodes already covering nearby work:\n${this.formatNodesForContext(siblings)}`,
+      'Terminality rule: return empty nodes and empty edges if the current node can be completed as one focused coding-agent action or if deeper decomposition would repeat ancestor/sibling work.',
+      trimmedInstructions ? `User construction instructions:\n${trimmedInstructions}` : undefined,
+      `Recent event context:\n${recentContext}`
+    ].filter((section): section is string => Boolean(section)).join('\n\n');
+
+    return { context, info: { nodeDepth, ancestors, siblings } };
+  }
+
+  private vetDecompositionNodes(parentNode: MegaplanNode, nodes: MegaplanNode[], info: DecompositionContextInfo): MegaplanNode[] {
+    if (nodes.length < 2) {
+      return [];
+    }
+
+    const allowNonCoding = this.taskAllowsNonCoding(this.snapshot.task);
+    const contextNodes = [parentNode, ...info.ancestors, ...info.siblings];
+    const filteredNodes = this.deduplicateSimilarNodes(nodes
+      .filter((node) => allowNonCoding || !this.hasNonCodingFocus(node))
+      .filter((node) => allowNonCoding || !this.hasResearchScopeWithoutImplementationAnchor(node))
+      .filter((node) => allowNonCoding || this.looksLikeCodingAgentStep(node) || !this.looksGenericPlanningStep(node))
+      .filter((node) => !this.duplicatesContextNode(node, contextNodes)));
+
+    if (filteredNodes.length < 2) {
+      return [];
+    }
+
+    if (!allowNonCoding && filteredNodes.every((node) => !this.looksLikeCodingAgentStep(node))) {
+      return [];
+    }
+
+    if (info.nodeDepth >= 2 && filteredNodes.filter((node) => this.looksLikeCodingAgentStep(node)).length < 2) {
+      return [];
+    }
+
+    return filteredNodes;
+  }
+
+  private getAncestorNodes(node: MegaplanNode): MegaplanNode[] {
+    const ancestors: MegaplanNode[] = [];
+    const seenNodeIds = new Set<string>();
+    let graphId = node.graphId ?? ROOT_GRAPH_ID;
+
+    while (graphId !== ROOT_GRAPH_ID) {
+      const graph = this.snapshot.graphs?.find((candidate) => candidate.id === graphId);
+      const parentNodeId = graph?.parentNodeId;
+
+      if (!parentNodeId || seenNodeIds.has(parentNodeId)) {
+        break;
+      }
+
+      const parentNode = this.snapshot.nodes.find((candidate) => candidate.id === parentNodeId);
+
+      if (!parentNode) {
+        break;
+      }
+
+      ancestors.unshift(parentNode);
+      seenNodeIds.add(parentNode.id);
+      graphId = parentNode.graphId ?? ROOT_GRAPH_ID;
+    }
+
+    return ancestors;
+  }
+
+  private formatNodesForContext(nodes: MegaplanNode[]): string {
+    if (nodes.length === 0) {
+      return 'None.';
+    }
+
+    return nodes.map((node) => `- ${node.title}${node.summary ? `: ${node.summary}` : ''} [${node.abstraction ?? 'unspecified'}]`).join('\n');
+  }
+
+  private isTerminalNode(node: MegaplanNode): boolean {
+    return node.abstraction === 'terminal' || node.abstraction === 'runnable' || node.expandable === false;
+  }
+
+  private nodeSummary(node: MegaplanNode): string {
+    const summary = node.summary?.trim();
+    return summary || `${node.title}.`;
+  }
+
+  private deduplicateSimilarNodes(nodes: MegaplanNode[]): MegaplanNode[] {
+    const accepted: MegaplanNode[] = [];
+
+    for (const node of nodes) {
+      if (!accepted.some((candidate) => this.textSimilarity(node.title, candidate.title) >= 0.75)) {
+        accepted.push(node);
+      }
+    }
+
+    return accepted;
+  }
+
+  private duplicatesContextNode(node: MegaplanNode, contextNodes: MegaplanNode[]): boolean {
+    return contextNodes.some((contextNode) => {
+      const nodeTitle = this.normalizedText(node.title);
+      const contextTitle = this.normalizedText(contextNode.title);
+      return this.textSimilarity(node.title, contextNode.title) >= 0.66 || (nodeTitle.length > 0 && contextTitle.length > 0 && (nodeTitle.includes(contextTitle) || contextTitle.includes(nodeTitle)));
+    });
+  }
+
+  private hasNonCodingFocus(node: MegaplanNode): boolean {
+    return this.containsAnyTerm(this.nodeSearchText(node), NON_CODING_TERMS);
+  }
+
+  private hasResearchScopeWithoutImplementationAnchor(node: MegaplanNode): boolean {
+    const text = this.nodeSearchText(node);
+    return this.containsAnyTerm(text, RESEARCH_SCOPE_TERMS) && !this.containsAnyTerm(text, IMPLEMENTATION_ANCHOR_TERMS);
+  }
+
+  private looksGenericPlanningStep(node: MegaplanNode): boolean {
+    return this.containsAnyTerm(this.normalizedText(node.title), GENERIC_PLANNING_TERMS);
+  }
+
+  private looksLikeCodingAgentStep(node: MegaplanNode): boolean {
+    return this.containsAnyTerm(this.nodeSearchText(node), CODING_TERMS);
+  }
+
+  private taskAllowsNonCoding(task?: string): boolean {
+    return this.containsAnyTerm(this.normalizedText(task ?? ''), EXPLICIT_NON_CODING_TERMS);
+  }
+
+  private nodeSearchText(node: MegaplanNode): string {
+    return this.normalizedText(`${node.title} ${node.summary ?? ''} ${node.rationale ?? ''}`);
+  }
+
+  private containsAnyTerm(text: string, terms: string[]): boolean {
+    return terms.some((term) => text.includes(term));
+  }
+
+  private textSimilarity(left: string, right: string): number {
+    const leftTokens = new Set(this.textTokens(left));
+    const rightTokens = new Set(this.textTokens(right));
+
+    if (leftTokens.size === 0 || rightTokens.size === 0) {
+      return 0;
+    }
+
+    const intersectionSize = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+    const unionSize = new Set([...leftTokens, ...rightTokens]).size;
+    return unionSize === 0 ? 0 : intersectionSize / unionSize;
+  }
+
+  private textTokens(text: string): string[] {
+    return this.normalizedText(text)
+      .split(' ')
+      .map((token) => token.length > 3 && token.endsWith('s') ? token.slice(0, -1) : token)
+      .filter((token) => token.length > 1 && !STOP_WORDS.has(token));
+  }
+
+  private normalizedText(text: string): string {
+    return text.toLowerCase().replace(/[^a-z0-9+#.\s-]/g, ' ').replace(/\s+/g, ' ').trim();
   }
 
   private markAlternativePromoted(alternatives: DecisionAlternative[], alternativeId: string, promotedGraphId: string): DecisionAlternative[] {

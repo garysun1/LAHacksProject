@@ -14,6 +14,7 @@ export function NodeInspector({ node, graphs, toolUses, onCommand }: Props): JSX
 
   const nodeToolUses = toolUses.filter((toolUse) => toolUse.nodeId === node.id || node.entailedBy?.includes(toolUse.nodeId));
   const childGraph = node.childGraphId ? graphs.find((graph) => graph.id === node.childGraphId) : undefined;
+  const terminal = node.abstraction === 'terminal' || node.abstraction === 'runnable' || node.expandable === false;
 
   return (
     <aside className="inspector">
@@ -21,9 +22,13 @@ export function NodeInspector({ node, graphs, toolUses, onCommand }: Props): JSX
         <span>{node.kind}</span>
         <strong>{node.status}</strong>
       </div>
-      <h2>{node.title}</h2>
-      {node.summary ? <p>{node.summary}</p> : null}
-      {childGraph ? (
+      <div className="inspector-title-row">
+        <h2>{node.title}</h2>
+        <button type="button" onClick={() => onCommand({ type: 'deleteNode', nodeId: node.id })}>Delete</button>
+      </div>
+      <p>{node.summary}</p>
+      {terminal ? <small className="node-footnote">Terminal node</small> : null}
+      {childGraph && !terminal ? (
         <section>
           <h3>Subgraph</h3>
           <button className="alternative" type="button" onClick={() => onCommand({ type: 'focusGraph', graphId: childGraph.id })}>
@@ -83,12 +88,6 @@ export function NodeInspector({ node, graphs, toolUses, onCommand }: Props): JSX
         </section>
       ) : null}
 
-      <div className="row-actions sticky-actions">
-        <button type="button" onClick={() => onCommand({ type: 'pinNode', nodeId: node.id, pinned: !node.pinned })}>{node.pinned ? 'Unpin' : 'Pin'}</button>
-        <button type="button" onClick={() => onCommand({ type: 'approveNode', nodeId: node.id })}>Approve</button>
-        <button type="button" onClick={() => onCommand({ type: 'rejectNode', nodeId: node.id, reason: 'Rejected in Megaplan review.' })}>Reject</button>
-        <button type="button" onClick={() => onCommand({ type: 'deleteNode', nodeId: node.id })}>Delete</button>
-      </div>
     </aside>
   );
 }

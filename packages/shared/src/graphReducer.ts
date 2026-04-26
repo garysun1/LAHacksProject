@@ -79,11 +79,7 @@ export function reduceBridgeEvent(snapshot: MegaplanGraphSnapshot, event: Bridge
     case 'activeNodeChanged': {
       next = {
         ...next,
-        activeNodeId: event.activeNodeId,
-        nodes: next.nodes.map((node) => ({
-          ...node,
-          status: node.id === event.activeNodeId ? 'active' : node.status === 'active' ? 'pending' : node.status
-        }))
+        activeNodeId: event.activeNodeId
       };
       break;
     }
@@ -130,8 +126,6 @@ export function reduceBridgeEvent(snapshot: MegaplanGraphSnapshot, event: Bridge
     case 'approvalRequested': {
       next = {
         ...next,
-        nodes: upsertNodes(next.nodes, [event.node]),
-        edges: event.edges ? upsertEdges(next.edges, event.edges) : next.edges,
         pendingToolUses: upsertToolUses(next.pendingToolUses ?? [], [event.toolUse])
       };
       break;

@@ -40,10 +40,10 @@ export function App(): JSX.Element {
     });
   }, []);
 
-  const selectedNode = useMemo(() => snapshot.nodes.find((node) => node.id === selectedNodeId), [selectedNodeId, snapshot.nodes]);
   const focusedGraphId = snapshot.focusedGraphId ?? snapshot.rootGraphId ?? 'root';
   const focusedNodes = useMemo(() => getGraphNodes(focusedGraphId, snapshot.nodes), [focusedGraphId, snapshot.nodes]);
   const focusedEdges = useMemo(() => getGraphEdges(focusedGraphId, snapshot.nodes, snapshot.edges), [focusedGraphId, snapshot.nodes, snapshot.edges]);
+  const selectedNode = useMemo(() => focusedNodes.find((node) => node.id === selectedNodeId), [focusedNodes, selectedNodeId]);
   const focusedSnapshot = useMemo<MegaplanGraphSnapshot>(() => ({
     ...snapshot,
     nodes: focusedNodes,
@@ -54,30 +54,59 @@ export function App(): JSX.Element {
 
   const impactedNodeIds = useMemo(() => selectedNodeId ? getDownstreamNodeIds(selectedNodeId, focusedEdges) : [], [selectedNodeId, focusedEdges]);
 
+  useEffect(() => {
+    if (selectedNodeId && !focusedNodes.some((node) => node.id === selectedNodeId)) {
+      setSelectedNodeId(undefined);
+    }
+  }, [focusedNodes, selectedNodeId]);
+
+  useEffect(() => {
+    if (snapshot.activeNodeId && focusedNodes.some((node) => node.id === snapshot.activeNodeId)) {
+      setSelectedNodeId(snapshot.activeNodeId);
+    }
+  }, [focusedNodes, snapshot.activeNodeId]);
+
   const sendCommand = useCallback((command: { type: string; [key: string]: unknown }) => {
     postMessage({ type: 'command', command: command as Omit<HumanCommand, 'commandId' | 'sessionId' | 'timestamp'> });
   }, []);
 
-  const startTask = useCallback(() => {
-    const trimmedTask = task.trim();
+  const isRootGraph = focusedGraphId === (snapshot.rootGraphId ?? 'root');
+  const isFocusedGraphEmpty = focusedNodes.length === 0;
 
-    if (focusedGraphId !== (snapshot.rootGraphId ?? 'root') || focusedNodes.length > 0) {
-      sendCommand({ type: 'runGraph', graphId: focusedGraphId });
+  const performPrimaryAction = useCallback(() => {
+    const trimmedInstructions = task.trim();
+
+    if (isFocusedGraphEmpty) {
+      if (isRootGraph && !trimmedInstructions) {
+        return;
+      }
+
+      sendCommand({ type: 'constructGraph', graphId: focusedGraphId, instructions: trimmedInstructions || undefined });
+      setTask('');
       return;
     }
 
-    if (!trimmedTask) {
+    if (selectedNode) {
+      sendCommand({ type: 'runNode', nodeId: selectedNode.id });
       return;
     }
 
-    sendCommand({ type: 'startTask', task: trimmedTask });
-    setTask('');
-  }, [focusedGraphId, focusedNodes.length, sendCommand, snapshot.rootGraphId, task]);
+    sendCommand({ type: 'runGraph', graphId: focusedGraphId });
+  }, [focusedGraphId, isFocusedGraphEmpty, isRootGraph, selectedNode, sendCommand, task]);
 
-  const runButtonLabel = focusedGraphId === (snapshot.rootGraphId ?? 'root') && focusedNodes.length === 0 ? 'Start task' : 'Run graph';
-  const taskPlaceholder = focusedGraphId === (snapshot.rootGraphId ?? 'root') && focusedNodes.length === 0
-    ? 'Describe the coding task for the bridge-agent...'
-    : 'Run operates on the focused graph.';
+  const primaryActionLabel = isFocusedGraphEmpty ? 'Construct' : selectedNode ? 'Run node' : 'Run graph';
+  const taskPlaceholder = isFocusedGraphEmpty
+    ? isRootGraph
+      ? 'Describe the task to construct the root graph...'
+      : 'Optional context for constructing this subgraph...'
+    : selectedNode
+      ? `Selected: ${selectedNode.title}`
+      : 'Select a node to run it, or run the focused graph.';
+  const actionTargetLabel = selectedNode ? `Selected: ${selectedNode.title}` : `Focused graph: ${focusedGraph?.title ?? focusedGraphId}`;
+  const primaryActionDisabled = isFocusedGraphEmpty && isRootGraph && !task.trim();
+  const emptyGraphMessage = isRootGraph
+    ? 'Describe the task below, then construct the root graph.'
+    : 'No substeps yet. Add optional context below, then construct this subgraph.';
 
   return (
     <main className="app-shell">
@@ -119,13 +148,13 @@ export function App(): JSX.Element {
 
       <section className="workspace">
         <div className="graph-panel">
+          {isFocusedGraphEmpty ? <div className="empty-graph-state">{emptyGraphMessage}</div> : null}
           <MegaplanGraph
             snapshot={focusedSnapshot}
             selectedNodeId={selectedNodeId}
             impactedNodeIds={impactedNodeIds}
             onSelectNode={setSelectedNodeId}
-            onExpandNode={(nodeId) => sendCommand({ type: 'decomposeNode', nodeId })}
-            onFocusGraph={(graphId) => sendCommand({ type: 'focusGraph', graphId })}
+            onOpenNodeGraph={(nodeId) => sendCommand({ type: 'openNodeGraph', nodeId })}
           />
         </div>
         <aside>
@@ -134,8 +163,11 @@ export function App(): JSX.Element {
       </section>
 
       <section className="taskbar">
-        <textarea value={task} onChange={(event) => setTask(event.target.value)} placeholder={taskPlaceholder} disabled={runButtonLabel !== 'Start task'} />
-        <button type="button" onClick={startTask}>{runButtonLabel}</button>
+        <div className="taskbar-context">
+          <span>{actionTargetLabel}</span>
+          <textarea value={task} onChange={(event) => setTask(event.target.value)} placeholder={taskPlaceholder} disabled={!isFocusedGraphEmpty} />
+        </div>
+        <button type="button" onClick={performPrimaryAction} disabled={primaryActionDisabled}>{primaryActionLabel}</button>
       </section>
     </main>
   );

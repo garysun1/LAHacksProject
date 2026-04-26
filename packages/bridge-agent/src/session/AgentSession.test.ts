@@ -14,6 +14,7 @@ const planNode = (overrides: Partial<MegaplanNode> = {}): MegaplanNode => ({
   kind: 'action',
   phase: 'execution',
   status: 'pending',
+  summary: 'Implement change.',
   ...overrides
 });
 
@@ -60,7 +61,12 @@ describe('AgentSession', () => {
 
     const approval = events.find((event): event is Extract<BridgeEvent, { type: 'approvalRequested' }> => event.type === 'approvalRequested');
     expect(approval?.toolUse.status).toBe('pending');
-    expect(events.some((event) => event.type === 'activeNodeChanged' && event.activeNodeId === undefined)).toBe(true);
+    expect(session.getSnapshot().nodes.filter((node) => node.kind === 'approval')).toEqual([]);
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')).toMatchObject({
+      status: 'blocked',
+      summary: 'Approval required: Write src/generated.ts'
+    });
+    expect(session.getSnapshot().activeNodeId).toBe('node-1');
     await expect(fs.readFile(path.join(workspaceRoot, 'src/generated.ts'), 'utf8')).rejects.toThrow();
 
     await session.handleCommand({
@@ -148,11 +154,12 @@ describe('AgentSession', () => {
     const session = new AgentSession('session-1', agent, (event) => events.push(event));
 
     await session.handleCommand({
-      type: 'startTask',
+      type: 'constructGraph',
       commandId: 'cmd-1',
       sessionId: 'session-1',
       timestamp: '2026-01-01T00:00:00.000Z',
-      task: 'Create ordered plan'
+      graphId: 'root',
+      instructions: 'Create ordered plan'
     });
 
     expect(events.find((event) => event.type === 'sessionSnapshot')).toMatchObject({
@@ -166,7 +173,77 @@ describe('AgentSession', () => {
     });
   });
 
-  it('opens any node as an empty child graph before running it', async () => {
+  it('replaces non-coding root proposals with coding-agent phases when the model is configured', async () => {
+    const events: BridgeEvent[] = [];
+    const agent = createAgent({
+      configured: true,
+      planNodes: [
+        planNode({ id: 'stakeholder-a', title: 'Identify stakeholder groups', summary: 'List business stakeholders.', order: 1 }),
+        planNode({ id: 'stakeholder-b', title: 'Conduct stakeholder interviews', summary: 'Gather project input.', order: 2 }),
+        planNode({ id: 'stakeholder-c', title: 'Create stakeholder map', summary: 'Categorize influence.', order: 3 })
+      ],
+      execution: completedExecution()
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'constructGraph',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      graphId: 'root',
+      instructions: 'Create an AI girlfriend app'
+    });
+
+    expect(session.getSnapshot().nodes.map((node) => node.title)).toEqual([
+      'Inspect codebase and task context',
+      'Design implementation approach',
+      'Implement code changes',
+      'Validate with tests and build'
+    ]);
+    expect(events.find((event) => event.type === 'sessionSnapshot')).toMatchObject({
+      type: 'sessionSnapshot',
+      snapshot: {
+        edges: [
+          { id: 'sequence-plan-inspect-codebase-plan-design-code-changes', source: 'plan-inspect-codebase', target: 'plan-design-code-changes', kind: 'sequence' },
+          { id: 'sequence-plan-design-code-changes-plan-implement-code-changes', source: 'plan-design-code-changes', target: 'plan-implement-code-changes', kind: 'sequence' },
+          { id: 'sequence-plan-implement-code-changes-plan-validate-build', source: 'plan-implement-code-changes', target: 'plan-validate-build', kind: 'sequence' }
+        ]
+      }
+    });
+  });
+
+  it('replaces AI research root proposals with coding-agent phases when the model is configured', async () => {
+    const events: BridgeEvent[] = [];
+    const agent = createAgent({
+      configured: true,
+      planNodes: [
+        planNode({ id: 'research-a', title: 'Inspect Current AI Technologies', summary: 'Survey available AI model approaches.', order: 1 }),
+        planNode({ id: 'research-b', title: 'Review AI Model Architecture', summary: 'Review transformer model architectures.', order: 2 }),
+        planNode({ id: 'research-c', title: 'Analyze Transformer Architectures', summary: 'Evaluate transformer components for conversational AI.', order: 3 })
+      ],
+      execution: completedExecution()
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'constructGraph',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      graphId: 'root',
+      instructions: 'Create an AI girlfriend app'
+    });
+
+    expect(session.getSnapshot().nodes.map((node) => node.title)).toEqual([
+      'Inspect codebase and task context',
+      'Design implementation approach',
+      'Implement code changes',
+      'Validate with tests and build'
+    ]);
+  });
+
+  it('does not open terminal nodes as child graphs and still runs them directly', async () => {
     const events: BridgeEvent[] = [];
     const agent = createAgent({
       planNodes: [planNode({ expandable: false, abstraction: 'terminal' })],
@@ -182,23 +259,26 @@ describe('AgentSession', () => {
       task: 'Create parent plan'
     });
     await session.handleCommand({
-      type: 'decomposeNode',
+      type: 'openNodeGraph',
       commandId: 'cmd-2',
       sessionId: 'session-1',
       timestamp: '2026-01-01T00:00:01.000Z',
       nodeId: 'node-1'
     });
 
-    expect(session.getSnapshot().focusedGraphId).toBe('graph-node-1');
-    expect(session.getSnapshot().graphs?.find((graph) => graph.id === 'graph-node-1')?.parentNodeId).toBe('node-1');
-    expect(session.getSnapshot().nodes.filter((node) => node.graphId === 'graph-node-1')).toEqual([]);
+    expect(session.getSnapshot().focusedGraphId).toBe('root');
+    expect(session.getSnapshot().graphs?.find((graph) => graph.id === 'graph-node-1')).toBeUndefined();
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')).toMatchObject({
+      abstraction: 'terminal',
+      expandable: false
+    });
 
     await session.handleCommand({
-      type: 'runGraph',
+      type: 'runNode',
       commandId: 'cmd-3',
       sessionId: 'session-1',
       timestamp: '2026-01-01T00:00:02.000Z',
-      graphId: 'graph-node-1'
+      nodeId: 'node-1'
     });
 
     expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')).toMatchObject({
@@ -207,14 +287,119 @@ describe('AgentSession', () => {
     });
   });
 
-  it('repairs cyclic child proposal edges when running an empty decomposable child graph', async () => {
+  it('runs a terminal node directly when its child graph is empty', async () => {
+    const events: BridgeEvent[] = [];
+    const agent = createAgent({
+      planNodes: [planNode({ expandable: false, abstraction: 'terminal' })],
+      execution: completedExecution()
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'startTask',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      task: 'Create parent plan'
+    });
+    await session.handleCommand({
+      type: 'openNodeGraph',
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      nodeId: 'node-1'
+    });
+    await session.handleCommand({
+      type: 'runGraph',
+      commandId: 'cmd-3',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      graphId: 'root'
+    });
+
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')).toMatchObject({
+      status: 'completed',
+      summary: 'Done.'
+    });
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')?.summary).not.toContain('Construct it or run the node directly.');
+    expect(events.some((event) => event.type === 'nodesUpdated' && event.patches.some((patch) => patch.patch.status === 'blocked'))).toBe(false);
+  });
+
+  it('revalidates a completed selected node subtree without running parent graph siblings', async () => {
+    const events: BridgeEvent[] = [];
+    const agent = createAgent({
+      planNodes: [
+        planNode({ status: 'completed', expandable: true, abstraction: 'decomposable', order: 1 }),
+        planNode({ id: 'node-2', title: 'Validate unrelated root step', kind: 'review', order: 2, abstraction: 'terminal' })
+      ],
+      execution: completedExecution()
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'startTask',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      task: 'Create parent plan'
+    });
+
+    const snapshot = session.getSnapshot();
+    const now = '2026-01-01T00:00:01.000Z';
+    snapshot.graphs?.push({
+      id: 'graph-node-1',
+      title: 'Implement change',
+      parentNodeId: 'node-1',
+      status: 'idle',
+      createdAt: now,
+      updatedAt: now
+    });
+    Object.assign(snapshot.nodes.find((node) => node.id === 'node-1') ?? {}, {
+      childGraphId: 'graph-node-1',
+      expanded: true
+    });
+    snapshot.nodes.push(
+      planNode({ id: 'child-a', title: 'Inspect completed child work', graphId: 'graph-node-1', parentId: 'node-1', status: 'completed', order: 1, abstraction: 'terminal' }),
+      planNode({ id: 'child-b', title: 'Add newly inserted child step', graphId: 'graph-node-1', parentId: 'node-1', order: 2, abstraction: 'terminal' })
+    );
+    snapshot.edges.push({ id: 'sequence-child-a-child-b', source: 'child-a', target: 'child-b', kind: 'sequence' });
+
+    await session.handleCommand({
+      type: 'runNode',
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      nodeId: 'node-1'
+    });
+
+    const activeNodeIds = events
+      .filter((event): event is Extract<BridgeEvent, { type: 'activeNodeChanged' }> => event.type === 'activeNodeChanged')
+      .map((event) => event.activeNodeId);
+    expect(activeNodeIds).toEqual(expect.arrayContaining(['node-1', 'child-a', 'child-b']));
+    expect(activeNodeIds.indexOf('child-a')).toBeLessThan(activeNodeIds.indexOf('child-b'));
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'child-b')).toMatchObject({
+      status: 'completed',
+      summary: 'Done.'
+    });
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')).toMatchObject({
+      status: 'completed',
+      summary: 'Completed subgraph graph-node-1.'
+    });
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'node-2')?.status).toBe('pending');
+    expect(session.getSnapshot()).toMatchObject({
+      focusedGraphId: 'root',
+      activeNodeId: 'node-1'
+    });
+  });
+
+  it('repairs cyclic child proposal edges when constructing an empty decomposable child graph', async () => {
     const events: BridgeEvent[] = [];
     const agent = createAgent({
       planNodes: [planNode({ expandable: true, abstraction: 'decomposable' })],
       planEdges: [],
       decomposeNodes: [
-        planNode({ id: 'child-b', title: 'Child B', order: 2, abstraction: 'terminal' }),
-        planNode({ id: 'child-a', title: 'Child A', order: 1, abstraction: 'terminal' })
+        planNode({ id: 'child-b', title: 'Update session execution logic', order: 2, abstraction: 'terminal' }),
+        planNode({ id: 'child-a', title: 'Inspect bridge-agent files', order: 1, abstraction: 'terminal' })
       ],
       decomposeEdges: [
         { id: 'b-a', source: 'child-b', target: 'child-a', kind: 'sequence' },
@@ -232,7 +417,7 @@ describe('AgentSession', () => {
       task: 'Create parent plan'
     });
     await session.handleCommand({
-      type: 'decomposeNode',
+      type: 'openNodeGraph',
       commandId: 'cmd-2',
       sessionId: 'session-1',
       timestamp: '2026-01-01T00:00:01.000Z',
@@ -245,32 +430,348 @@ describe('AgentSession', () => {
       timestamp: '2026-01-01T00:00:02.000Z',
       graphId: 'graph-node-1'
     });
+    expect(events.some((event) => event.type === 'nodesAdded' && event.nodes.some((node) => node.graphId === 'graph-node-1'))).toBe(false);
+
+    await session.handleCommand({
+      type: 'constructGraph',
+      commandId: 'cmd-4',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:03.000Z',
+      graphId: 'graph-node-1',
+      instructions: 'Use two child steps.'
+    });
 
     expect(events.find((event): event is Extract<BridgeEvent, { type: 'nodesAdded' }> => event.type === 'nodesAdded')?.edges).toEqual([
       { id: 'sequence-child-a-child-b', source: 'child-a', target: 'child-b', kind: 'sequence' }
     ]);
+    expect(events.some((event) => event.type === 'graphRunStateChanged' && event.graphId === 'graph-node-1' && event.message === 'No nodes to run. Construct this graph first.')).toBe(true);
+
+    await session.handleCommand({
+      type: 'runNode',
+      commandId: 'cmd-5',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:04.000Z',
+      nodeId: 'node-1'
+    });
+
+    expect(session.getSnapshot().nodes.filter((node) => node.graphId === 'graph-node-1').map((node) => [node.id, node.status])).toEqual([
+      ['child-b', 'completed'],
+      ['child-a', 'completed']
+    ]);
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')).toMatchObject({
+      status: 'completed',
+      summary: 'Completed subgraph graph-node-1.'
+    });
+    expect(session.getSnapshot()).toMatchObject({
+      focusedGraphId: 'root',
+      activeNodeId: 'node-1'
+    });
+  });
+
+  it('keeps the approval-blocked child highlighted while marking the parent blocked', async () => {
+    const workspaceRoot = await makeTempWorkspace();
+    const events: BridgeEvent[] = [];
+    const agent = createAgent({
+      planNodes: [planNode({ expandable: true, abstraction: 'decomposable' })],
+      planEdges: [],
+      decomposeNodes: [
+        planNode({ id: 'child-a', title: 'Update generated file', order: 1, abstraction: 'terminal' }),
+        planNode({ id: 'child-b', title: 'Validate generated file tests', kind: 'review', order: 2, abstraction: 'terminal' })
+      ],
+      execution: {
+        summary: 'Patch is ready.',
+        rationale: 'The file should be written after approval.',
+        confidence: 0.7,
+        observations: [],
+        proposedPatch: {
+          path: 'src/generated-child.ts',
+          content: 'export const generatedChild = true;\n',
+          description: 'Create generated child file.'
+        }
+      }
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'startTask',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      task: 'Create parent plan',
+      workspaceRoot
+    });
+    await session.handleCommand({
+      type: 'openNodeGraph',
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      nodeId: 'node-1'
+    });
+    await session.handleCommand({
+      type: 'constructGraph',
+      commandId: 'cmd-3',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      graphId: 'graph-node-1'
+    });
+    await session.handleCommand({
+      type: 'runNode',
+      commandId: 'cmd-4',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:03.000Z',
+      nodeId: 'node-1'
+    });
+
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')).toMatchObject({
+      status: 'blocked'
+    });
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'child-a')).toMatchObject({
+      status: 'blocked',
+      summary: 'Approval required: Write src/generated-child.ts'
+    });
+    expect(session.getSnapshot()).toMatchObject({
+      focusedGraphId: 'graph-node-1',
+      activeNodeId: 'child-a'
+    });
+    expect(session.getSnapshot().pendingToolUses?.[0]).toMatchObject({
+      nodeId: 'child-a',
+      status: 'pending'
+    });
+    expect(events.some((event) => event.type === 'graphRunStateChanged' && event.graphId === 'graph-node-1' && event.status === 'blocked')).toBe(true);
+
+    const approval = session.getSnapshot().pendingToolUses?.[0];
+    await session.handleCommand({
+      type: 'approveToolUse',
+      commandId: 'cmd-5',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:04.000Z',
+      toolUseId: approval?.id ?? ''
+    });
+    await flushAsyncWork();
+
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'child-a')?.status).toBe('completed');
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'child-b')?.status).toBe('pending');
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')?.status).toBe('pending');
+    expect(events.filter((event) => event.type === 'approvalRequested')).toHaveLength(1);
+  });
+
+  it('returns to the parent graph when a node is unambiguous and needs no child steps', async () => {
+    const events: BridgeEvent[] = [];
+    const agent = createAgent({
+      planNodes: [planNode({ expandable: true, abstraction: 'decomposable' })],
+      planEdges: [],
+      decomposeNodes: [],
+      execution: completedExecution()
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'startTask',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      task: 'Create parent plan'
+    });
+    await session.handleCommand({
+      type: 'openNodeGraph',
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      nodeId: 'node-1'
+    });
+    await session.handleCommand({
+      type: 'constructGraph',
+      commandId: 'cmd-3',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      graphId: 'graph-node-1'
+    });
+
+    expect(session.getSnapshot().focusedGraphId).toBe('root');
+    expect(session.getSnapshot().nodes.filter((node) => node.graphId === 'graph-node-1')).toEqual([]);
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')).toMatchObject({
+      abstraction: 'terminal',
+      expandable: false,
+      expanded: false,
+      status: 'pending',
+      summary: 'Unambiguous terminal step; no child graph needed.'
+    });
+    expect(events.some((event) => event.type === 'graphRunStateChanged' && event.graphId === 'graph-node-1' && event.message === 'No child steps needed.')).toBe(true);
+  });
+
+  it('terminalizes non-coding child proposals for coding tasks', async () => {
+    const events: BridgeEvent[] = [];
+    const agent = createAgent({
+      planNodes: [planNode({ title: 'Implement chat feature', expandable: true, abstraction: 'decomposable' })],
+      planEdges: [],
+      decomposeNodes: [
+        planNode({ id: 'stakeholder-a', title: 'Identify stakeholder groups', summary: 'List business stakeholders.', order: 1 }),
+        planNode({ id: 'stakeholder-b', title: 'Conduct stakeholder interviews', summary: 'Gather project input.', order: 2 }),
+        planNode({ id: 'stakeholder-c', title: 'Create stakeholder map', summary: 'Categorize influence.', order: 3 })
+      ],
+      execution: completedExecution()
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'startTask',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      task: 'Create an AI girlfriend app'
+    });
+    await session.handleCommand({
+      type: 'openNodeGraph',
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      nodeId: 'node-1'
+    });
+    await session.handleCommand({
+      type: 'constructGraph',
+      commandId: 'cmd-3',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      graphId: 'graph-node-1'
+    });
+
+    expect(session.getSnapshot().focusedGraphId).toBe('root');
+    expect(session.getSnapshot().nodes.filter((node) => node.graphId === 'graph-node-1')).toEqual([]);
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')).toMatchObject({
+      abstraction: 'terminal',
+      expandable: false,
+      status: 'pending'
+    });
+    expect(events.some((event) => event.type === 'nodesAdded' && event.nodes.some((node) => node.graphId === 'graph-node-1'))).toBe(false);
+  });
+
+  it('terminalizes AI research child proposals for coding tasks', async () => {
+    const events: BridgeEvent[] = [];
+    const agent = createAgent({
+      planNodes: [planNode({ expandable: true, abstraction: 'decomposable' })],
+      planEdges: [],
+      decomposeNodes: [
+        planNode({ id: 'child-a', title: 'Review Transformer Model Papers', summary: 'Read papers about transformer models.', order: 1 }),
+        planNode({ id: 'child-b', title: 'Analyze Transformer Components', summary: 'Analyze model architecture concepts.', order: 2 }),
+        planNode({ id: 'child-c', title: 'Evaluate Transformers in Conversational AI', summary: 'Evaluate technologies for conversational AI.', order: 3 })
+      ],
+      execution: completedExecution()
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'startTask',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      task: 'Create an AI girlfriend app'
+    });
+    await session.handleCommand({
+      type: 'openNodeGraph',
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      nodeId: 'node-1'
+    });
+    await session.handleCommand({
+      type: 'constructGraph',
+      commandId: 'cmd-3',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      graphId: 'graph-node-1'
+    });
+
+    expect(session.getSnapshot().focusedGraphId).toBe('root');
+    expect(session.getSnapshot().nodes.filter((node) => node.graphId === 'graph-node-1')).toEqual([]);
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')).toMatchObject({
+      abstraction: 'terminal',
+      expandable: false,
+      status: 'pending'
+    });
+    expect(events.some((event) => event.type === 'nodesAdded' && event.nodes.some((node) => node.graphId === 'graph-node-1'))).toBe(false);
+  });
+
+  it('passes task, depth, ancestors, and siblings into decomposition context', async () => {
+    const events: BridgeEvent[] = [];
+    let capturedContext = '';
+    const agent = createAgent({
+      planNodes: [
+        planNode({ title: 'Implement chat interface', expandable: true, abstraction: 'decomposable' }),
+        planNode({ id: 'node-2', title: 'Validate chat interface tests', kind: 'review', order: 2, expandable: true, abstraction: 'decomposable' })
+      ],
+      planEdges: [],
+      decomposeNodes: [
+        planNode({ id: 'child-a', title: 'Inspect chat component files', order: 1, abstraction: 'terminal' }),
+        planNode({ id: 'child-b', title: 'Update chat input component', order: 2, abstraction: 'terminal' })
+      ],
+      decomposeNode: async (_sessionId, _node, context) => {
+        capturedContext = context;
+        return {
+          nodes: [
+            planNode({ id: 'child-a', title: 'Inspect chat component files', order: 1, abstraction: 'terminal' }),
+            planNode({ id: 'child-b', title: 'Update chat input component', order: 2, abstraction: 'terminal' })
+          ],
+          edges: []
+        };
+      },
+      execution: completedExecution()
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'startTask',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      task: 'Create an AI girlfriend app'
+    });
+    await session.handleCommand({
+      type: 'openNodeGraph',
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      nodeId: 'node-1'
+    });
+    await session.handleCommand({
+      type: 'constructGraph',
+      commandId: 'cmd-3',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      graphId: 'graph-node-1',
+      instructions: 'Focus on the UI layer.'
+    });
+
+    expect(capturedContext).toContain('Original coding task:\nCreate an AI girlfriend app');
+    expect(capturedContext).toContain('Current node depth: 0');
+    expect(capturedContext).toContain('Ancestor path:\n- Implement chat interface');
+    expect(capturedContext).toContain('Sibling nodes already covering nearby work:\n- Validate chat interface tests');
+    expect(capturedContext).toContain('User construction instructions:\nFocus on the UI layer.');
   });
 });
 
 function createAgent({
+  configured = false,
   planNode,
   planNodes,
   planEdges = [],
   decomposeNodes = [],
   decomposeEdges = [],
+  decomposeNode,
   execution
 }: {
+  configured?: boolean;
   planNode?: MegaplanNode;
   planNodes?: MegaplanNode[];
   planEdges?: MegaplanEdge[];
   decomposeNodes?: MegaplanNode[];
   decomposeEdges?: MegaplanEdge[];
+  decomposeNode?: OpenAiAgent['decomposeNode'];
   execution: Awaited<ReturnType<OpenAiAgent['executeNode']>>;
 }): OpenAiAgent {
   return {
-    configured: false,
+    configured,
     planTask: async () => ({ nodes: planNodes ?? (planNode ? [planNode] : []), edges: planEdges }),
-    decomposeNode: async () => ({ nodes: decomposeNodes, edges: decomposeEdges }),
+    decomposeNode: decomposeNode ?? (async () => ({ nodes: decomposeNodes, edges: decomposeEdges })),
     executeNode: async () => execution
   } as unknown as OpenAiAgent;
 }

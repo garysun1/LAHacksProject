@@ -55,7 +55,7 @@ export const megaplanNodeSchema = z.object({
   status: nodeStatusSchema,
   abstraction: nodeAbstractionSchema.optional(),
   confidence: z.number().min(0).max(1).optional(),
-  summary: z.string().optional(),
+  summary: z.string().min(1),
   rationale: z.string().optional(),
   alternatives: z.array(decisionAlternativeSchema).optional(),
   selectedAlternativeId: z.string().optional(),
@@ -167,9 +167,7 @@ export const bridgeEventSchema: z.ZodType<unknown> = z.lazy(() => z.discriminate
   }),
   bridgeEventBaseSchema.extend({
     type: z.literal('approvalRequested'),
-    node: megaplanNodeSchema,
-    toolUse: toolUseRequestSchema,
-    edges: z.array(megaplanEdgeSchema).optional()
+    toolUse: toolUseRequestSchema
   }),
   bridgeEventBaseSchema.extend({
     type: z.literal('toolUseUpdated'),
@@ -198,8 +196,11 @@ export const humanCommandBaseSchema = z.object({
 export const humanCommandSchema = z.discriminatedUnion('type', [
   humanCommandBaseSchema.extend({ type: z.literal('startTask'), task: z.string().min(1), workspaceRoot: z.string().optional() }),
   humanCommandBaseSchema.extend({ type: z.literal('decomposeNode'), nodeId: z.string().min(1) }),
+  humanCommandBaseSchema.extend({ type: z.literal('openNodeGraph'), nodeId: z.string().min(1) }),
+  humanCommandBaseSchema.extend({ type: z.literal('constructGraph'), graphId: z.string().optional(), instructions: z.string().optional(), workspaceRoot: z.string().optional() }),
   humanCommandBaseSchema.extend({ type: z.literal('focusGraph'), graphId: z.string().min(1) }),
   humanCommandBaseSchema.extend({ type: z.literal('runGraph'), graphId: z.string().optional() }),
+  humanCommandBaseSchema.extend({ type: z.literal('runNode'), nodeId: z.string().min(1) }),
   humanCommandBaseSchema.extend({ type: z.literal('reorderNodes'), parentId: z.string().optional(), orderedNodeIds: z.array(z.string()) }),
   humanCommandBaseSchema.extend({ type: z.literal('deleteNode'), nodeId: z.string().min(1) }),
   humanCommandBaseSchema.extend({ type: z.literal('pinNode'), nodeId: z.string().min(1), pinned: z.boolean() }),

@@ -190,6 +190,20 @@ pre {
   background: var(--mp-panel);
 }
 
+.taskbar-context {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.taskbar-context span {
+  overflow: hidden;
+  color: var(--mp-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .taskbar textarea {
   resize: none;
   min-height: 32px;
@@ -322,9 +336,25 @@ pre {
 }
 
 .graph-panel {
+  position: relative;
   overflow: hidden;
   border-right: 1px solid var(--mp-border);
   background: var(--mp-bg);
+}
+
+.empty-graph-state {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  z-index: 5;
+  max-width: 360px;
+  padding: 10px 12px;
+  border: 1px solid var(--mp-border);
+  border-radius: 2px;
+  background: var(--mp-panel);
+  color: var(--mp-muted);
+  text-align: center;
+  transform: translateX(-50%);
 }
 
 .react-flow {
@@ -386,6 +416,15 @@ pre {
 .megaplan-node.selected {
   border-color: var(--mp-focus);
   box-shadow: 0 0 0 1px var(--mp-focus);
+}
+
+.megaplan-node.active {
+  border-color: var(--mp-active);
+  box-shadow: 0 0 0 1px var(--mp-active);
+}
+
+.megaplan-node.active .node-title {
+  color: var(--mp-active);
 }
 
 .megaplan-node.impacted {
@@ -469,6 +508,14 @@ pre {
   -webkit-line-clamp: 2;
 }
 
+.node-footnote {
+  display: block;
+  margin: 4px 0 0 15px;
+  color: var(--mp-muted);
+  font-size: 11px;
+  font-style: italic;
+}
+
 .inspector {
   overflow: auto;
   border: 0;
@@ -523,6 +570,22 @@ pre {
   font-weight: 500;
 }
 
+.inspector-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.inspector-title-row h2 {
+  flex: 1 1 auto;
+}
+
+.inspector-title-row button {
+  flex: 0 0 auto;
+  margin-top: 8px;
+}
+
 .alternative,
 .artifact,
 .tool-use {
@@ -557,13 +620,4 @@ pre {
   border-radius: 2px;
   background: var(--vscode-textCodeBlock-background, var(--mp-bg));
   color: var(--mp-fg);
-}
-
-.sticky-actions {
-  position: sticky;
-  bottom: 0;
-  margin: 18px -12px -12px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--mp-border);
-  background: var(--mp-panel);
 }

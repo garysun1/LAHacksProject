@@ -85,7 +85,7 @@ export class GraphController {
       timestamp: new Date().toISOString()
     } as HumanCommand;
 
-    if (humanCommand.type === 'startTask' && !humanCommand.workspaceRoot) {
+    if ((humanCommand.type === 'startTask' || humanCommand.type === 'constructGraph') && !humanCommand.workspaceRoot) {
       humanCommand.workspaceRoot = this.workspaceRoot;
     }
 

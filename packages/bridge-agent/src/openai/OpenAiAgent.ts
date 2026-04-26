@@ -61,7 +61,7 @@ export class OpenAiAgent {
       messages: [
         {
           role: 'system',
-          content: 'You decompose coding tasks into a concise recursive sequence graph for Megaplan. Each graph is an ordered list of distinct steps; use only sequence edges, avoid dependency/entailment/invalidates semantics, mark broad steps as decomposable, and return graph data only through the provided tool.'
+          content: 'You are planning work for a coding agent operating inside an IDE. Interpret vague app ideas as software-building tasks to implement in code, not as research, product strategy, or ML literature review. Do not produce business, stakeholder, marketing, sales, interview, generic project-management, literature-review, AI-model-survey, technology-comparison, paper-reading, conceptual-analysis, or architecture-research steps unless the user explicitly asks for that non-coding research. Decompose coding tasks into a concise recursive sequence graph for Megaplan. For root task graphs, produce 3-5 ordered top-level nodes unless the task is truly atomic; avoid returning one catch-all node. Each top-level node should represent a distinct, actionable IDE coding-agent phase: inspect the existing workspace, define app surfaces/data/contracts, implement files/components/services/routes/state, wire integrations/API calls, add tests, run typechecks/builds, debug failures, and validate behavior. Prefer verbs like inspect code, locate files, implement, update, wire, add tests, run build, and validate. Avoid verbs like research, review papers, evaluate technologies, analyze model architectures, compare frameworks, or identify best practices unless directly tied to editing or testing code. Use only sequence edges, avoid dependency/entailment/invalidates semantics, mark broad or ambiguous coding steps as decomposable, mark unambiguous one-way coding steps as terminal or runnable, and return graph data only through the provided tool.'
         },
         {
           role: 'user',
@@ -87,7 +87,7 @@ export class OpenAiAgent {
       messages: [
         {
           role: 'system',
-          content: 'You lazily decompose one Megaplan graph node into a focused child sequence graph. Keep IDs stable, use the parent ID, make child nodes concrete, use only sequence edges between naturally ordered steps, and return graph data only through the tool.'
+          content: 'You are decomposing work for a coding agent operating inside an IDE. Produce child nodes only for concrete IDE coding-agent work: inspect files, locate code paths, update code, add components/services/routes/schemas, wire UI or APIs, integrate model/API calls, add tests, run typechecks/builds, debug failures, and validate behavior. Do not produce business, stakeholder, marketing, sales, interview, generic project-management, literature-review, AI-model-survey, technology-comparison, paper-reading, conceptual-analysis, or architecture-research steps unless the original user task explicitly asks for that kind of research. Lazily decompose one Megaplan graph node into a focused child sequence graph. Produce 2-5 ordered child nodes only when they are distinct, actionable implementation steps that together comprise the parent node; avoid repeating the parent intent, duplicating ancestor/sibling responsibilities from the provided context, or returning one catch-all child node. If the parent node is already unambiguous, terminal, has only one obvious way to complete it, is primarily research/conceptual, or is at depth 2+ without multiple independent coding actions, return an empty nodes array and empty edges array. Keep IDs stable, use the parent ID, make child nodes concrete and code-editable, use only sequence edges between naturally ordered implementation steps, and return graph data only through the tool.'
         },
         {
           role: 'user',
@@ -153,6 +153,7 @@ export class OpenAiAgent {
         phase: 'planning',
         status: 'pending',
         confidence: 0.6,
+        summary: 'Choose the implementation shape, affected files, and integration points before editing code.',
         expandable: true,
         abstraction: 'decomposable',
         order: 2,
@@ -168,6 +169,7 @@ export class OpenAiAgent {
         phase: 'execution',
         status: 'pending',
         confidence: 0.55,
+        summary: 'Apply the selected implementation changes in the workspace.',
         expandable: true,
         abstraction: 'decomposable',
         order: 3
@@ -179,6 +181,7 @@ export class OpenAiAgent {
         phase: 'review',
         status: 'pending',
         confidence: 0.75,
+        summary: 'Review generated artifacts, run validations, and assess confidence in the result.',
         expandable: true,
         abstraction: 'decomposable',
         order: 4
@@ -204,6 +207,7 @@ export class OpenAiAgent {
       phase: node.phase,
       status: 'pending',
       confidence: 0.6,
+      summary: `Inspect files and context needed for ${node.title}.`,
       abstraction: 'runnable',
       order: 1
     };
@@ -215,6 +219,7 @@ export class OpenAiAgent {
       phase: node.phase,
       status: 'pending',
       confidence: 0.55,
+      summary: `Make the concrete code or validation change for ${node.title}.`,
       abstraction: 'runnable',
       order: 2
     };
@@ -242,7 +247,7 @@ function createGraphTool(): OpenAI.Chat.Completions.ChatCompletionTool {
             items: {
               type: 'object',
               additionalProperties: true,
-              required: ['id', 'title', 'kind', 'phase', 'status'],
+              required: ['id', 'title', 'kind', 'phase', 'status', 'summary'],
               properties: {
                 id: { type: 'string' },
                 graphId: { type: 'string' },

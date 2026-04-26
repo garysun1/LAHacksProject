@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bridgeEventSchema } from './schemas';
+import { bridgeEventSchema, humanCommandSchema } from './schemas';
 import { createEmptySnapshot, reduceBridgeEvent } from './graphReducer';
 import { buildSequenceEdges } from './graphUtils';
 import type { BridgeEvent, MegaplanNode, ToolUseRequest } from './types';
@@ -9,7 +9,8 @@ const baseNode = (id: string): MegaplanNode => ({
   title: id,
   kind: 'task',
   phase: 'planning',
-  status: 'pending'
+  status: 'pending',
+  summary: `${id}.`
 });
 
 const baseEvent = (type: BridgeEvent['type']): Pick<BridgeEvent, 'eventId' | 'sessionId' | 'timestamp' | 'type'> => ({
@@ -102,15 +103,9 @@ describe('reduceBridgeEvent', () => {
       proposedContent: 'content',
       status: 'pending'
     };
-    const approvalNode: MegaplanNode = {
-      ...baseNode('approval-1'),
-      kind: 'approval',
-      status: 'blocked'
-    };
     const snapshot = reduceBridgeEvent(createEmptySnapshot('session-1'), {
       ...baseEvent('approvalRequested'),
       type: 'approvalRequested',
-      node: approvalNode,
       toolUse
     });
     const next = reduceBridgeEvent(snapshot, {
@@ -121,7 +116,7 @@ describe('reduceBridgeEvent', () => {
     });
 
     expect(next.pendingToolUses).toEqual([{ ...toolUse, status: 'applied' }]);
-    expect(next.nodes.find((node) => node.id === 'approval-1')).toMatchObject({ kind: 'approval' });
+    expect(next.nodes).toEqual([]);
   });
 
   it('tracks focused recursive graphs and run state', () => {
@@ -177,6 +172,11 @@ describe('reduceBridgeEvent', () => {
       type: 'activeNodeChanged',
       activeNodeId: 'a'
     });
+    expect(active).toMatchObject({
+      activeNodeId: 'a',
+      nodes: [{ status: 'pending' }]
+    });
+
     const completed = reduceBridgeEvent(active, {
       ...baseEvent('nodesUpdated'),
       type: 'nodesUpdated',
@@ -239,5 +239,41 @@ describe('reduceBridgeEvent', () => {
       graphId: 'root',
       status: 'running'
     })).toMatchObject({ type: 'graphRunStateChanged' });
+    expect(humanCommandSchema.parse({
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      type: 'openNodeGraph',
+      nodeId: 'node-1'
+    })).toMatchObject({ type: 'openNodeGraph' });
+    expect(humanCommandSchema.parse({
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      type: 'constructGraph',
+      graphId: 'graph-node-1',
+      instructions: 'Focus on implementation details.'
+    })).toMatchObject({ type: 'constructGraph' });
+    expect(humanCommandSchema.parse({
+      commandId: 'cmd-3',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      type: 'runNode',
+      nodeId: 'node-1'
+    })).toMatchObject({ type: 'runNode' });
+  });
+
+  it('requires node summaries through the shared schema', () => {
+    expect(() => bridgeEventSchema.parse({
+      ...baseEvent('nodesAdded'),
+      type: 'nodesAdded',
+      nodes: [{
+        id: 'a',
+        title: 'a',
+        kind: 'task',
+        phase: 'planning',
+        status: 'pending'
+      }]
+    })).toThrow();
   });
 });

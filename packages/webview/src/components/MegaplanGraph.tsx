@@ -12,11 +12,10 @@ type Props = {
   selectedNodeId?: string;
   impactedNodeIds: string[];
   onSelectNode: (nodeId: string) => void;
-  onExpandNode: (nodeId: string) => void;
-  onFocusGraph: (graphId: string) => void;
+  onOpenNodeGraph: (nodeId: string) => void;
 };
 
-export function MegaplanGraph({ snapshot, selectedNodeId, impactedNodeIds, onSelectNode, onExpandNode, onFocusGraph }: Props): JSX.Element {
+export function MegaplanGraph({ snapshot, selectedNodeId, impactedNodeIds, onSelectNode, onOpenNodeGraph }: Props): JSX.Element {
   const impacted = useMemo(() => new Set(impactedNodeIds), [impactedNodeIds]);
 
   const nodes = useMemo<MegaplanFlowNode[]>(() => {
@@ -26,14 +25,13 @@ export function MegaplanGraph({ snapshot, selectedNodeId, impactedNodeIds, onSel
       position: getNodePosition(node, snapshot.nodes),
       data: {
         ...node,
+        active: snapshot.activeNodeId === node.id,
         impacted: impacted.has(node.id),
         selected: selectedNodeId === node.id,
-        onInspect: onSelectNode,
-        onExpand: onExpandNode,
-        onFocusGraph
+        onInspect: onSelectNode
       }
     }));
-  }, [impacted, onExpandNode, onFocusGraph, onSelectNode, selectedNodeId, snapshot.nodes]);
+  }, [impacted, onSelectNode, selectedNodeId, snapshot.activeNodeId, snapshot.nodes]);
 
   const edges = useMemo<Edge[]>(() => {
     return snapshot.edges.map((edge) => ({
@@ -51,6 +49,11 @@ export function MegaplanGraph({ snapshot, selectedNodeId, impactedNodeIds, onSel
       nodeTypes={nodeTypes}
       fitView
       onNodeClick={(_, node) => onSelectNode(node.id)}
+      onNodeDoubleClick={(_, node) => {
+        if (node.data.abstraction !== 'terminal' && node.data.abstraction !== 'runnable' && node.data.expandable !== false) {
+          onOpenNodeGraph(node.id);
+        }
+      }}
     >
       <Background />
       <Controls />

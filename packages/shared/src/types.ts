@@ -63,7 +63,7 @@ export type MegaplanNode = {
   status: NodeStatus;
   abstraction?: NodeAbstraction;
   confidence?: number;
-  summary?: string;
+  summary: string;
   rationale?: string;
   alternatives?: DecisionAlternative[];
   selectedAlternativeId?: string;
@@ -184,9 +184,7 @@ export type AlternativesProposedEvent = BridgeEventBase & {
 
 export type ApprovalRequestedEvent = BridgeEventBase & {
   type: 'approvalRequested';
-  node: MegaplanNode;
   toolUse: ToolUseRequest;
-  edges?: MegaplanEdge[];
 };
 
 export type ToolUseUpdatedEvent = BridgeEventBase & {
@@ -233,8 +231,11 @@ export type HumanCommandBase = {
 export type HumanCommand =
   | (HumanCommandBase & { type: 'startTask'; task: string; workspaceRoot?: string })
   | (HumanCommandBase & { type: 'decomposeNode'; nodeId: string })
+  | (HumanCommandBase & { type: 'openNodeGraph'; nodeId: string })
+  | (HumanCommandBase & { type: 'constructGraph'; graphId?: string; instructions?: string; workspaceRoot?: string })
   | (HumanCommandBase & { type: 'focusGraph'; graphId: string })
   | (HumanCommandBase & { type: 'runGraph'; graphId?: string })
+  | (HumanCommandBase & { type: 'runNode'; nodeId: string })
   | (HumanCommandBase & { type: 'reorderNodes'; parentId?: string; orderedNodeIds: string[] })
   | (HumanCommandBase & { type: 'deleteNode'; nodeId: string })
   | (HumanCommandBase & { type: 'pinNode'; nodeId: string; pinned: boolean })
