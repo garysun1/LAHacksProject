@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createEmptySnapshot, getDownstreamNodeIds, getGraphBreadcrumbs, getGraphEdges, getGraphNodes, type BridgeConnectionState, type HumanCommand, type MegaplanGraphSnapshot } from '@megaplan/shared';
+import { EventTimeline } from './components/EventTimeline';
 import { MegaplanGraph } from './components/MegaplanGraph';
 import { NodeInspector } from './components/NodeInspector';
 import { RipplePanel } from './components/RipplePanel';
@@ -167,8 +168,9 @@ export function App(): JSX.Element {
             onOpenNodeGraph={(nodeId) => sendCommand({ type: 'openNodeGraph', nodeId })}
           />
         </div>
-        <aside>
+        <aside className="side-panel">
           <NodeInspector node={selectedNode} graphs={snapshot.graphs ?? []} toolUses={snapshot.pendingToolUses ?? []} onCommand={sendCommand} />
+          <EventTimeline snapshot={snapshot} />
         </aside>
       </section>
 

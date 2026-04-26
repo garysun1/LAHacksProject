@@ -1,3 +1,4 @@
-# Workspace Overview
-
-This workspace contains various session data files located in the `.megaplan/sessions` directory, each representing a unique project or session. Additional information about the project might be contained in this README file.
+## Project Structure
+- `src/`: Contains source code, specifically `slack_message_retriever.py` for Slack message handling.
+- `tests/`: Contains test scripts like `test_slack_message_retriever.py`.
+- `.megaplan/sessions/`: Appears to contain session files for logging or state purposes.
