@@ -16,7 +16,7 @@ export function MegaplanNode({ data }: NodeProps<MegaplanFlowNode>): JSX.Element
   const isLowConfidence = typeof data.confidence === 'number' && data.confidence < 0.6;
 
   return (
-    <div className={`megaplan-node status-${data.status} kind-${data.kind} ${isLowConfidence ? 'low-confidence' : ''} ${data.impacted ? 'impacted' : ''}`}>
+    <div className={`megaplan-node status-${data.status} kind-${data.kind} ${isLowConfidence ? 'low-confidence' : ''} ${data.impacted ? 'impacted' : ''} ${data.selected ? 'selected' : ''}`}>
       <Handle type="target" position={Position.Left} />
       <div className="node-header">
         <span className="node-kind">{data.kind}</span>

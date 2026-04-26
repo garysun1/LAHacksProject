@@ -1,8 +1,30 @@
 :root {
   color-scheme: dark;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #0f1117;
-  color: #f4f7fb;
+  font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+  background: var(--vscode-editor-background, #1e1e1e);
+  color: var(--vscode-foreground, #cccccc);
+  --mp-bg: var(--vscode-editor-background, #1e1e1e);
+  --mp-panel: var(--vscode-sideBar-background, #252526);
+  --mp-panel-alt: var(--vscode-editorWidget-background, #252526);
+  --mp-tabs: var(--vscode-editorGroupHeader-tabsBackground, #252526);
+  --mp-border: var(--vscode-panel-border, #3c3c3c);
+  --mp-muted: var(--vscode-descriptionForeground, #858585);
+  --mp-fg: var(--vscode-foreground, #cccccc);
+  --mp-focus: var(--vscode-focusBorder, #007fd4);
+  --mp-input: var(--vscode-input-background, #3c3c3c);
+  --mp-input-fg: var(--vscode-input-foreground, #cccccc);
+  --mp-button: var(--vscode-button-background, #0e639c);
+  --mp-button-fg: var(--vscode-button-foreground, #ffffff);
+  --mp-button-hover: var(--vscode-button-hoverBackground, #1177bb);
+  --mp-secondary-button: var(--vscode-button-secondaryBackground, #3a3d41);
+  --mp-secondary-button-hover: var(--vscode-button-secondaryHoverBackground, #45494e);
+  --mp-secondary-button-fg: var(--vscode-button-secondaryForeground, #cccccc);
+  --mp-row-hover: var(--vscode-list-hoverBackground, #2a2d2e);
+  --mp-active: var(--vscode-charts-blue, #3794ff);
+  --mp-success: var(--vscode-testing-iconPassed, #73c991);
+  --mp-warning: var(--vscode-editorWarning-foreground, #cca700);
+  --mp-danger: var(--vscode-errorForeground, #f48771);
 }
 
 * {
@@ -14,6 +36,7 @@ body {
   min-width: 100vw;
   min-height: 100vh;
   overflow: hidden;
+  background: var(--mp-bg);
 }
 
 button,
@@ -22,129 +45,220 @@ textarea {
 }
 
 button {
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.08);
-  color: #f8fafc;
-  border-radius: 10px;
-  padding: 7px 10px;
+  min-height: 26px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: var(--mp-secondary-button);
+  color: var(--mp-secondary-button-fg);
+  padding: 3px 10px;
   cursor: pointer;
 }
 
 button:hover:not(:disabled) {
-  background: rgba(125, 211, 252, 0.18);
-  border-color: rgba(125, 211, 252, 0.5);
+  background: var(--mp-secondary-button-hover);
+}
+
+button:focus-visible,
+textarea:focus-visible {
+  outline: 1px solid var(--mp-focus);
+  outline-offset: -1px;
 }
 
 button:disabled {
-  opacity: 0.45;
+  opacity: 0.5;
   cursor: not-allowed;
+}
+
+code,
+pre {
+  font-family: var(--vscode-editor-font-family, "SF Mono", Menlo, Consolas, monospace);
+  font-size: var(--vscode-editor-font-size, 12px);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-hoverBackground, rgba(100, 100, 100, 0.7));
 }
 
 .app-shell {
   display: grid;
-  grid-template-rows: auto auto auto 1fr;
+  grid-template-rows: 35px auto auto 1fr;
   height: 100vh;
-  background:
-    radial-gradient(circle at top left, rgba(56, 189, 248, 0.2), transparent 30%),
-    radial-gradient(circle at bottom right, rgba(168, 85, 247, 0.18), transparent 30%),
-    #0f1117;
+  background: var(--mp-bg);
 }
 
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  padding: 18px 22px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 16px;
+  min-width: 0;
+  padding: 0 10px 0 12px;
+  border-bottom: 1px solid var(--mp-border);
+  background: var(--mp-tabs);
+}
+
+.topbar > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
 }
 
 .topbar h1 {
-  margin: 0 0 4px;
-  font-size: 24px;
+  margin: 0;
+  color: var(--mp-fg);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .topbar p {
+  overflow: hidden;
   margin: 0;
-  color: #aab4c0;
+  color: var(--mp-muted);
+  font-size: 12px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .connection {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.connection span {
-  color: #aab4c0;
+  gap: 8px;
+  min-width: 0;
+  color: var(--mp-muted);
   font-size: 12px;
 }
 
+.connection strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mp-muted);
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.connection strong::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mp-muted);
+  content: "";
+}
+
+.connection span {
+  overflow: hidden;
+  max-width: 260px;
+  color: var(--mp-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection.status-connected strong::before {
+  background: var(--mp-success);
+}
+
+.connection.status-error strong::before {
+  background: var(--mp-danger);
+}
+
 .connection.status-connected strong {
-  color: #86efac;
+  color: var(--mp-success);
 }
 
 .connection.status-error strong {
-  color: #fca5a5;
+  color: var(--mp-danger);
 }
 
 .taskbar {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 12px;
-  padding: 14px 22px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--mp-border);
+  background: var(--mp-panel);
 }
 
 .taskbar textarea {
   resize: none;
-  min-height: 56px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 14px;
-  background: rgba(15, 23, 42, 0.82);
-  color: #f8fafc;
-  padding: 12px;
+  min-height: 32px;
+  max-height: 84px;
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 2px;
+  background: var(--mp-input);
+  color: var(--mp-input-fg);
+  padding: 7px 8px;
+}
+
+.taskbar textarea::placeholder {
+  color: var(--vscode-input-placeholderForeground, var(--mp-muted));
+}
+
+.taskbar button {
+  align-self: stretch;
+  background: var(--mp-button);
+  color: var(--mp-button-fg);
+}
+
+.taskbar button:hover:not(:disabled) {
+  background: var(--mp-button-hover);
 }
 
 .error-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 0 22px 10px;
-  padding: 10px 12px;
-  border: 1px solid rgba(248, 113, 113, 0.4);
-  border-radius: 12px;
-  color: #fecaca;
-  background: rgba(127, 29, 29, 0.32);
+  gap: 12px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--vscode-inputValidation-errorBorder, var(--mp-danger));
+  color: var(--vscode-inputValidation-errorForeground, var(--mp-fg));
+  background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
 }
 
 .phase-strip {
   display: flex;
   align-items: stretch;
-  gap: 12px;
-  padding: 0 22px 14px;
+  min-height: 34px;
+  border-bottom: 1px solid var(--mp-border);
+  background: var(--mp-panel);
 }
 
 .phase-card,
 .ripple-panel {
-  min-width: 150px;
-  padding: 12px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 136px;
+  padding: 7px 10px;
+  border-right: 1px solid var(--mp-border);
+  background: transparent;
+}
+
+.ripple-panel {
+  color: var(--mp-warning);
 }
 
 .phase-card strong,
 .ripple-panel strong {
-  display: block;
-  margin-bottom: 4px;
+  color: var(--mp-fg);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .phase-card span,
 .ripple-panel span {
-  color: #aab4c0;
+  color: var(--mp-muted);
   font-size: 12px;
 }
 
@@ -152,49 +266,116 @@ button:disabled {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
   min-height: 0;
-  padding: 0 22px 22px;
-  gap: 14px;
 }
 
 .graph-panel {
   overflow: hidden;
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(2, 6, 23, 0.52);
+  border-right: 1px solid var(--mp-border);
+  background: var(--mp-bg);
+}
+
+.react-flow {
+  background: var(--mp-bg);
+}
+
+.react-flow__background {
+  background-color: var(--mp-bg);
+}
+
+.react-flow__controls {
+  border: 1px solid var(--mp-border);
+  box-shadow: none;
+}
+
+.react-flow__controls-button {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-bottom: 1px solid var(--mp-border);
+  border-radius: 0;
+  background: var(--mp-panel);
+  color: var(--mp-fg);
+}
+
+.react-flow__controls-button:hover {
+  background: var(--mp-row-hover);
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+.react-flow__minimap {
+  border: 1px solid var(--mp-border);
+  border-radius: 0;
+  background: var(--mp-panel);
+}
+
+.react-flow__edge-path {
+  stroke: var(--vscode-editorIndentGuide-background, #404040);
+  stroke-width: 1.25;
+}
+
+.react-flow__edge.edge-invalidates .react-flow__edge-path {
+  stroke: var(--mp-danger);
+}
+
+.react-flow__edge.edge-entails .react-flow__edge-path {
+  stroke: var(--mp-muted);
+}
+
+.react-flow__edge-text {
+  fill: var(--mp-muted);
+  font-size: 11px;
+}
+
+.react-flow__edge-textbg {
+  fill: var(--mp-bg);
 }
 
 .megaplan-node {
   width: 260px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  border-radius: 16px;
-  background: rgba(15, 23, 42, 0.96);
-  color: #f8fafc;
-  padding: 12px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.24);
+  border: 1px solid var(--mp-border);
+  border-left: 3px solid var(--mp-muted);
+  border-radius: 3px;
+  background: var(--mp-panel-alt);
+  color: var(--mp-fg);
+  padding: 9px 10px;
+  box-shadow: none;
+}
+
+.megaplan-node:hover {
+  border-color: var(--vscode-widget-border, #555555);
+  border-left-color: var(--mp-muted);
+}
+
+.megaplan-node.selected {
+  border-color: var(--mp-focus);
+  box-shadow: 0 0 0 1px var(--mp-focus);
 }
 
 .megaplan-node.low-confidence {
-  border-color: #f59e0b;
-  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.18), 0 16px 40px rgba(0, 0, 0, 0.24);
+  border-left-color: var(--mp-warning);
 }
 
 .megaplan-node.impacted {
-  border-color: #f87171;
-  box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.2), 0 16px 40px rgba(0, 0, 0, 0.24);
+  border-left-color: var(--mp-danger);
+  box-shadow: inset 0 0 0 1px var(--mp-danger);
 }
 
 .megaplan-node.status-active {
-  border-color: #38bdf8;
+  border-left-color: var(--mp-active);
 }
 
 .megaplan-node.status-completed,
 .megaplan-node.status-approved {
-  opacity: 0.74;
+  border-left-color: var(--mp-success);
+  opacity: 0.82;
 }
 
 .megaplan-node.status-invalidated,
 .megaplan-node.status-rejected {
-  border-color: #ef4444;
+  border-left-color: var(--mp-danger);
 }
 
 .node-header,
@@ -208,64 +389,76 @@ button:disabled {
 .node-kind,
 .node-badge,
 .node-confidence {
+  color: var(--mp-muted);
   font-size: 11px;
-  color: #cbd5e1;
+  line-height: 1.2;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+}
+
+.node-badge {
+  color: var(--mp-warning);
 }
 
 .node-title {
-  margin: 10px 0 6px;
-  font-weight: 700;
+  margin: 8px 0 5px;
+  color: var(--mp-fg);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 .node-summary {
-  color: #aab4c0;
+  color: var(--mp-muted);
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.4;
 }
 
 .node-footer {
-  margin-top: 12px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--mp-border);
+  color: var(--mp-muted);
   font-size: 12px;
 }
 
 .node-footer button {
-  padding: 4px 7px;
-  border-radius: 8px;
-  font-size: 11px;
+  min-height: 22px;
+  padding: 2px 7px;
+  font-size: 12px;
 }
 
 .inspector {
   overflow: auto;
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(15, 23, 42, 0.88);
-  padding: 16px;
+  border: 0;
+  background: var(--mp-panel);
+  padding: 12px;
 }
 
 .inspector.empty {
   display: grid;
   place-items: center;
-  color: #aab4c0;
+  color: var(--mp-muted);
   text-align: center;
 }
 
 .inspector h2 {
   margin: 10px 0;
-  font-size: 20px;
+  color: var(--mp-fg);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
 }
 
 .inspector h3 {
-  margin: 18px 0 8px;
-  font-size: 13px;
-  color: #cbd5e1;
+  margin: 18px 0 7px;
+  color: var(--mp-muted);
+  font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 
 .inspector p {
-  color: #cbd5e1;
+  color: var(--mp-fg);
   line-height: 1.5;
 }
 
@@ -277,17 +470,32 @@ button:disabled {
   gap: 8px;
 }
 
+.inspector-header {
+  color: var(--mp-muted);
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
+.inspector-header strong {
+  color: var(--mp-fg);
+  font-weight: 500;
+}
+
 .alternative,
 .artifact,
 .tool-use {
   display: block;
   width: 100%;
   margin: 8px 0;
-  padding: 10px;
+  padding: 9px;
   text-align: left;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--mp-border);
+  border-radius: 2px;
+  background: var(--mp-bg);
+}
+
+.alternative:hover:not(:disabled) {
+  background: var(--mp-row-hover);
 }
 
 .alternative span,
@@ -296,22 +504,24 @@ button:disabled {
 .tool-use code {
   display: block;
   margin-top: 5px;
-  color: #aab4c0;
+  color: var(--mp-muted);
 }
 
 .artifact pre {
   overflow: auto;
   max-height: 180px;
-  padding: 10px;
-  border-radius: 10px;
-  background: rgba(2, 6, 23, 0.72);
-  color: #dbeafe;
+  padding: 8px;
+  border: 1px solid var(--mp-border);
+  border-radius: 2px;
+  background: var(--vscode-textCodeBlock-background, var(--mp-bg));
+  color: var(--mp-fg);
 }
 
 .sticky-actions {
   position: sticky;
   bottom: 0;
-  margin-top: 18px;
-  padding-top: 12px;
-  background: linear-gradient(transparent, rgba(15, 23, 42, 0.96) 30%);
+  margin: 18px -12px -12px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--mp-border);
+  background: var(--mp-panel);
 }

@@ -64,7 +64,7 @@ export function App(): JSX.Element {
       <header className="topbar">
         <div>
           <h1>Megaplan</h1>
-          <p>Plan, execution trace, and review surface in one graph.</p>
+          <p>Planning graph and review.</p>
         </div>
         <div className={`connection status-${connection.status}`}>
           <strong>{connection.status}</strong>

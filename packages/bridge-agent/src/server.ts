@@ -1,9 +1,12 @@
 import cors from 'cors';
 import express from 'express';
 import { SseHub } from './events/SseHub';
+import { loadProjectEnv } from './env';
 import { createCommandsRouter } from './routes/commands';
 import { createEventsRouter } from './routes/events';
 import { SessionManager } from './session/SessionManager';
+
+loadProjectEnv();
 
 const port = Number(process.env.MEGAPLAN_BRIDGE_PORT ?? 37241);
 const host = process.env.MEGAPLAN_BRIDGE_HOST ?? '127.0.0.1';
