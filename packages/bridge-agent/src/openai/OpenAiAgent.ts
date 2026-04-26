@@ -61,7 +61,7 @@ export class OpenAiAgent {
       messages: [
         {
           role: 'system',
-          content: 'You decompose coding tasks into a concise DAG for a graph-based coding agent. Return graph data only through the provided tool.'
+          content: 'You decompose coding tasks into a concise recursive DAG for Megaplan. Prefer high-level nodes that can become focused subgraphs, mark vague nodes as decomposable, and return graph data only through the provided tool.'
         },
         {
           role: 'user',
@@ -87,7 +87,7 @@ export class OpenAiAgent {
       messages: [
         {
           role: 'system',
-          content: 'You lazily decompose one graph node into child nodes. Keep IDs stable, use the parent ID, and return graph data only through the tool.'
+          content: 'You lazily decompose one Megaplan graph node into a focused child subgraph. Keep IDs stable, use the parent ID, make child nodes concrete, and return graph data only through the tool.'
         },
         {
           role: 'user',
@@ -118,7 +118,7 @@ export class OpenAiAgent {
       messages: [
         {
           role: 'system',
-          content: 'You execute one coding-agent graph node. Provide a concise structured result. If a file change is needed, propose it rather than claiming it was applied.'
+          content: 'You execute one coding-agent graph node. If the node is still abstract, surface observations or alternatives instead of pretending it is complete. If a file change is needed, propose it rather than claiming it was applied.'
         },
         {
           role: 'user',
@@ -143,6 +143,7 @@ export class OpenAiAgent {
         confidence: 0.8,
         summary: task,
         expandable: true,
+        abstraction: 'decomposable',
         order: 1
       },
       {
@@ -153,6 +154,7 @@ export class OpenAiAgent {
         status: 'pending',
         confidence: 0.6,
         expandable: true,
+        abstraction: 'decomposable',
         order: 2,
         alternatives: [
           { id: 'mvp-first', title: 'MVP first', summary: 'Build the smallest working vertical slice.', tradeoffs: ['Fast validation', 'Less complete initially'], recommended: true },
@@ -167,6 +169,7 @@ export class OpenAiAgent {
         status: 'pending',
         confidence: 0.55,
         expandable: true,
+        abstraction: 'decomposable',
         order: 3
       },
       {
@@ -177,6 +180,7 @@ export class OpenAiAgent {
         status: 'pending',
         confidence: 0.75,
         expandable: true,
+        abstraction: 'decomposable',
         order: 4
       }
     ];
@@ -200,6 +204,7 @@ export class OpenAiAgent {
       phase: node.phase,
       status: 'pending',
       confidence: 0.6,
+      abstraction: 'runnable',
       order: 1
     };
     const childB: MegaplanNode = {
@@ -210,6 +215,7 @@ export class OpenAiAgent {
       phase: node.phase,
       status: 'pending',
       confidence: 0.55,
+      abstraction: 'runnable',
       order: 2
     };
 
@@ -239,11 +245,14 @@ function createGraphTool(): OpenAI.Chat.Completions.ChatCompletionTool {
               required: ['id', 'title', 'kind', 'phase', 'status'],
               properties: {
                 id: { type: 'string' },
+                graphId: { type: 'string' },
                 parentId: { type: 'string' },
+                childGraphId: { type: 'string' },
                 title: { type: 'string' },
                 kind: { enum: ['task', 'decision', 'action', 'review', 'observation', 'approval'] },
                 phase: { enum: ['planning', 'execution', 'review'] },
                 status: { enum: ['pending', 'active', 'completed', 'blocked', 'invalidated', 'approved', 'rejected'] },
+                abstraction: { enum: ['abstract', 'decomposable', 'runnable', 'terminal'] },
                 confidence: { type: 'number' },
                 summary: { type: 'string' },
                 rationale: { type: 'string' },
@@ -308,7 +317,9 @@ function executionResultTool(): OpenAI.Chat.Completions.ChatCompletionTool {
                 title: { type: 'string' },
                 summary: { type: 'string' },
                 tradeoffs: { type: 'array', items: { type: 'string' } },
-                recommended: { type: 'boolean' }
+                recommended: { type: 'boolean' },
+                status: { enum: ['candidate', 'selected', 'rejected'] },
+                promotedGraphId: { type: 'string' }
               }
             }
           }

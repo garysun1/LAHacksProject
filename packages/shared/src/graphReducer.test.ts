@@ -103,6 +103,48 @@ describe('reduceBridgeEvent', () => {
     expect(next.nodes.find((node) => node.id === 'approval-1')).toMatchObject({ kind: 'approval' });
   });
 
+  it('tracks focused recursive graphs and run state', () => {
+    const snapshot = createEmptySnapshot('session-1');
+    const withGraph = reduceBridgeEvent(snapshot, {
+      ...baseEvent('graphsUpdated'),
+      type: 'graphsUpdated',
+      upsert: [{
+        id: 'graph-child',
+        title: 'Child graph',
+        parentNodeId: 'a',
+        status: 'idle',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z'
+      }]
+    });
+    const focused = reduceBridgeEvent(withGraph, {
+      ...baseEvent('graphFocused'),
+      type: 'graphFocused',
+      graphId: 'graph-child'
+    });
+    const running = reduceBridgeEvent(focused, {
+      ...baseEvent('graphRunStateChanged'),
+      type: 'graphRunStateChanged',
+      graphId: 'graph-child',
+      status: 'running'
+    });
+    const completed = reduceBridgeEvent(running, {
+      ...baseEvent('graphRunStateChanged'),
+      type: 'graphRunStateChanged',
+      graphId: 'graph-child',
+      status: 'completed',
+      message: 'Graph completed.'
+    });
+
+    expect(focused.focusedGraphId).toBe('graph-child');
+    expect(running.activeGraphId).toBe('graph-child');
+    expect(completed.activeGraphId).toBeUndefined();
+    expect(completed.graphs?.find((graph) => graph.id === 'graph-child')).toMatchObject({
+      status: 'completed',
+      summary: 'Graph completed.'
+    });
+  });
+
   it('links artifacts and clears active node without losing completed status', () => {
     const snapshot = reduceBridgeEvent(createEmptySnapshot('session-1'), {
       ...baseEvent('nodesAdded'),
@@ -167,5 +209,14 @@ describe('reduceBridgeEvent', () => {
       toolUseId: 'tool-1',
       patch: { status: 'rejected' }
     })).toMatchObject({ type: 'toolUseUpdated' });
+  });
+
+  it('validates recursive graph commands through the shared schema', () => {
+    expect(bridgeEventSchema.parse({
+      ...baseEvent('graphRunStateChanged'),
+      type: 'graphRunStateChanged',
+      graphId: 'root',
+      status: 'running'
+    })).toMatchObject({ type: 'graphRunStateChanged' });
   });
 });

@@ -3,10 +3,12 @@ import { Handle, Position } from '@xyflow/react';
 import type { MegaplanNode as MegaplanNodeData } from '@megaplan/shared';
 
 export type MegaplanNodeViewData = Record<string, unknown> & MegaplanNodeData & {
+  childGraphId?: string;
   impacted?: boolean;
   selected?: boolean;
   onInspect?: (nodeId: string) => void;
   onExpand?: (nodeId: string) => void;
+  onFocusGraph?: (graphId: string) => void;
 };
 
 export type MegaplanFlowNode = Node<MegaplanNodeViewData, 'megaplan'>;
@@ -28,6 +30,7 @@ export function MegaplanNode({ data }: NodeProps<MegaplanFlowNode>): JSX.Element
       <div className="node-footer">
         <span>{data.status}</span>
         <button type="button" onClick={() => data.onInspect?.(data.id)}>Review</button>
+        {data.childGraphId ? <button type="button" onClick={() => data.onFocusGraph?.(data.childGraphId ?? '')}>Open</button> : null}
         {data.expandable ? <button type="button" onClick={() => data.onExpand?.(data.id)}>{data.expanded ? 'Expanded' : 'Expand'}</button> : null}
       </div>
       <Handle type="source" position={Position.Right} />

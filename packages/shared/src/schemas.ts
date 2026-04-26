@@ -4,13 +4,28 @@ export const graphPhaseSchema = z.enum(['planning', 'execution', 'review']);
 export const nodeStatusSchema = z.enum(['pending', 'active', 'completed', 'blocked', 'invalidated', 'approved', 'rejected']);
 export const nodeKindSchema = z.enum(['task', 'decision', 'action', 'review', 'observation', 'approval']);
 export const edgeKindSchema = z.enum(['sequence', 'dependency', 'entailment', 'invalidates']);
+export const nodeAbstractionSchema = z.enum(['abstract', 'decomposable', 'runnable', 'terminal']);
+export const alternativeStatusSchema = z.enum(['candidate', 'selected', 'rejected']);
+export const graphRunStatusSchema = z.enum(['idle', 'running', 'completed', 'blocked', 'error']);
 
 export const decisionAlternativeSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
   summary: z.string(),
   tradeoffs: z.array(z.string()),
-  recommended: z.boolean().optional()
+  recommended: z.boolean().optional(),
+  status: alternativeStatusSchema.optional(),
+  promotedGraphId: z.string().optional()
+});
+
+export const megaplanGraphScopeSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  parentNodeId: z.string().optional(),
+  status: graphRunStatusSchema,
+  summary: z.string().optional(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1)
 });
 
 export const nodeArtifactSchema = z.object({
@@ -31,11 +46,14 @@ export const nodeArtifactSchema = z.object({
 
 export const megaplanNodeSchema = z.object({
   id: z.string().min(1),
+  graphId: z.string().optional(),
   parentId: z.string().optional(),
+  childGraphId: z.string().optional(),
   title: z.string().min(1),
   kind: nodeKindSchema,
   phase: graphPhaseSchema,
   status: nodeStatusSchema,
+  abstraction: nodeAbstractionSchema.optional(),
   confidence: z.number().min(0).max(1).optional(),
   summary: z.string().optional(),
   rationale: z.string().optional(),
@@ -81,11 +99,15 @@ export const graphSnapshotSchema: z.ZodType<unknown> = z.lazy(() => z.object({
   sessionId: z.string().min(1),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
+  rootGraphId: z.string().optional(),
+  focusedGraphId: z.string().optional(),
   task: z.string().optional(),
   phase: graphPhaseSchema,
+  graphs: z.array(megaplanGraphScopeSchema).optional(),
   nodes: z.array(megaplanNodeSchema),
   edges: z.array(megaplanEdgeSchema),
   activeNodeId: z.string().optional(),
+  activeGraphId: z.string().optional(),
   bridgeBaseUrl: z.string().optional(),
   eventLog: z.array(bridgeEventSchema).optional(),
   pendingToolUses: z.array(toolUseRequestSchema).optional()
@@ -114,8 +136,23 @@ export const bridgeEventSchema: z.ZodType<unknown> = z.lazy(() => z.discriminate
     removeIds: z.array(z.string()).optional()
   }),
   bridgeEventBaseSchema.extend({
+    type: z.literal('graphsUpdated'),
+    upsert: z.array(megaplanGraphScopeSchema).optional(),
+    removeIds: z.array(z.string()).optional()
+  }),
+  bridgeEventBaseSchema.extend({
     type: z.literal('activeNodeChanged'),
     activeNodeId: z.string().optional()
+  }),
+  bridgeEventBaseSchema.extend({
+    type: z.literal('graphFocused'),
+    graphId: z.string().min(1)
+  }),
+  bridgeEventBaseSchema.extend({
+    type: z.literal('graphRunStateChanged'),
+    graphId: z.string().min(1),
+    status: graphRunStatusSchema,
+    message: z.string().optional()
   }),
   bridgeEventBaseSchema.extend({
     type: z.literal('nodeInvalidated'),
@@ -161,10 +198,13 @@ export const humanCommandBaseSchema = z.object({
 export const humanCommandSchema = z.discriminatedUnion('type', [
   humanCommandBaseSchema.extend({ type: z.literal('startTask'), task: z.string().min(1), workspaceRoot: z.string().optional() }),
   humanCommandBaseSchema.extend({ type: z.literal('decomposeNode'), nodeId: z.string().min(1) }),
+  humanCommandBaseSchema.extend({ type: z.literal('focusGraph'), graphId: z.string().min(1) }),
+  humanCommandBaseSchema.extend({ type: z.literal('runGraph'), graphId: z.string().optional() }),
   humanCommandBaseSchema.extend({ type: z.literal('reorderNodes'), parentId: z.string().optional(), orderedNodeIds: z.array(z.string()) }),
   humanCommandBaseSchema.extend({ type: z.literal('deleteNode'), nodeId: z.string().min(1) }),
   humanCommandBaseSchema.extend({ type: z.literal('pinNode'), nodeId: z.string().min(1), pinned: z.boolean() }),
   humanCommandBaseSchema.extend({ type: z.literal('selectAlternative'), nodeId: z.string().min(1), alternativeId: z.string().min(1) }),
+  humanCommandBaseSchema.extend({ type: z.literal('promoteAlternative'), nodeId: z.string().min(1), alternativeId: z.string().min(1) }),
   humanCommandBaseSchema.extend({ type: z.literal('approveNode'), nodeId: z.string().min(1) }),
   humanCommandBaseSchema.extend({ type: z.literal('rejectNode'), nodeId: z.string().min(1), reason: z.string().optional() }),
   humanCommandBaseSchema.extend({ type: z.literal('approveToolUse'), toolUseId: z.string().min(1) }),

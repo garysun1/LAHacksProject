@@ -1,14 +1,16 @@
-import { createEmptySnapshot, getDownstreamNodeIds, reduceBridgeEvent, type BridgeEvent, type HumanCommand, type MegaplanGraphSnapshot, type MegaplanNode, type ToolUseRequest } from '@megaplan/shared';
+import { createEmptySnapshot, getDownstreamNodeIds, reduceBridgeEvent, type BridgeEvent, type DecisionAlternative, type GraphRunStatus, type HumanCommand, type MegaplanGraphScope, type MegaplanGraphSnapshot, type MegaplanNode, type ToolUseRequest } from '@megaplan/shared';
 import { OpenAiAgent } from '../openai/OpenAiAgent';
 import { fileWriteRequiresApproval } from '../tools/toolPolicy';
 import { listWorkspaceFiles, writeWorkspaceFile } from '../tools/workspaceTools';
 
 export type PublishEvent = (event: BridgeEvent) => void;
 
+const ROOT_GRAPH_ID = 'root';
+
 export class AgentSession {
   private snapshot: MegaplanGraphSnapshot;
   private workspaceRoot?: string;
-  private running = false;
+  private readonly runningGraphIds = new Set<string>();
   private readonly approvedToolUses = new Set<string>();
   private readonly rejectedToolUses = new Set<string>();
 
@@ -32,6 +34,12 @@ export class AgentSession {
       case 'decomposeNode':
         await this.decomposeNode(command.nodeId);
         break;
+      case 'focusGraph':
+        this.focusGraph(command.graphId);
+        break;
+      case 'runGraph':
+        await this.runGraph(command.graphId ?? this.snapshot.focusedGraphId ?? this.snapshot.rootGraphId ?? ROOT_GRAPH_ID);
+        break;
       case 'reorderNodes':
         this.reorderNodes(command.orderedNodeIds, command.parentId);
         break;
@@ -44,6 +52,9 @@ export class AgentSession {
         break;
       case 'selectAlternative':
         this.updateNode(command.nodeId, { selectedAlternativeId: command.alternativeId });
+        break;
+      case 'promoteAlternative':
+        await this.promoteAlternative(command.nodeId, command.alternativeId);
         break;
       case 'approveNode':
         this.updateNode(command.nodeId, { status: 'approved' });
@@ -76,13 +87,16 @@ export class AgentSession {
       ...createEmptySnapshot(this.sessionId),
       createdAt,
       updatedAt: createdAt,
+      rootGraphId: ROOT_GRAPH_ID,
+      focusedGraphId: ROOT_GRAPH_ID,
+      graphs: [this.createGraphScope(ROOT_GRAPH_ID, task, undefined, createdAt)],
       task
     };
 
     const proposal = await this.agent.planTask(this.sessionId, task);
     this.snapshot = {
       ...this.snapshot,
-      nodes: proposal.nodes,
+      nodes: this.normalizeNodes(proposal.nodes, ROOT_GRAPH_ID),
       edges: proposal.edges,
       updatedAt: createdAt
     };
@@ -93,7 +107,7 @@ export class AgentSession {
       ...this.eventBase()
     });
 
-    void this.runExecutionLoop();
+    void this.runGraph(ROOT_GRAPH_ID);
   }
 
   private async decomposeNode(nodeId: string): Promise<void> {
@@ -106,14 +120,74 @@ export class AgentSession {
 
     const context = this.snapshot.eventLog?.slice(-20).map((event) => `${event.type}:${event.eventId}`).join('\n') ?? '';
     const proposal = await this.agent.decomposeNode(this.sessionId, node, context);
+    const graphId = node.childGraphId ?? `graph-${node.id}`;
+    const now = new Date().toISOString();
+    const childGraph = this.createGraphScope(graphId, node.title, node.id, now);
+    const nodes = this.normalizeNodes(proposal.nodes, graphId, node.id);
 
     this.emit({
+      type: 'graphsUpdated',
+      upsert: [childGraph],
+      ...this.eventBase()
+    });
+    this.emit({
       type: 'nodesAdded',
-      nodes: proposal.nodes,
+      nodes,
       edges: proposal.edges,
       ...this.eventBase()
     });
-    this.updateNode(nodeId, { expanded: true });
+    this.updateNode(nodeId, { childGraphId: graphId, expanded: true, abstraction: 'decomposable' });
+    this.focusGraph(graphId);
+  }
+
+  private async promoteAlternative(nodeId: string, alternativeId: string): Promise<void> {
+    const node = this.snapshot.nodes.find((candidate) => candidate.id === nodeId);
+
+    if (!node) {
+      this.emitAgentError(`Cannot promote alternative for missing node: ${nodeId}`, true);
+      return;
+    }
+
+    const alternative = node.alternatives?.find((candidate) => candidate.id === alternativeId);
+
+    if (!alternative) {
+      this.emitAgentError(`Cannot promote missing alternative ${alternativeId} for node ${nodeId}`, true);
+      return;
+    }
+
+    const graphId = alternative.promotedGraphId ?? `graph-${node.id}-alt-${alternative.id}`;
+    const now = new Date().toISOString();
+    const childGraph = this.createGraphScope(graphId, alternative.title, node.id, now, alternative.summary);
+    const context = `Alternative: ${JSON.stringify(alternative)}\nNode: ${JSON.stringify(node)}`;
+    const proposal = await this.agent.decomposeNode(this.sessionId, {
+      ...node,
+      title: alternative.title,
+      summary: alternative.summary
+    }, context);
+    const nodes = this.normalizeNodes(proposal.nodes, graphId, node.id);
+    const alternatives = this.markAlternativePromoted(node.alternatives ?? [], alternativeId, graphId);
+
+    this.emit({ type: 'graphsUpdated', upsert: [childGraph], ...this.eventBase() });
+    this.emit({ type: 'nodesAdded', nodes, edges: proposal.edges, ...this.eventBase() });
+    this.updateNode(nodeId, {
+      selectedAlternativeId: alternativeId,
+      alternatives,
+      childGraphId: graphId,
+      expanded: true,
+      abstraction: 'decomposable'
+    });
+    this.focusGraph(graphId);
+  }
+
+  private focusGraph(graphId: string): void {
+    const graph = this.snapshot.graphs?.find((candidate) => candidate.id === graphId);
+
+    if (!graph) {
+      this.emitAgentError(`Cannot focus missing graph: ${graphId}`, true);
+      return;
+    }
+
+    this.emit({ type: 'graphFocused', graphId, ...this.eventBase() });
   }
 
   private reorderNodes(orderedNodeIds: string[], parentId?: string): void {
@@ -127,16 +201,17 @@ export class AgentSession {
     }
   }
 
-  private async runExecutionLoop(): Promise<void> {
-    if (this.running) {
+  private async runGraph(graphId: string): Promise<void> {
+    if (this.runningGraphIds.has(graphId)) {
       return;
     }
 
-    this.running = true;
+    this.runningGraphIds.add(graphId);
+    this.emitGraphRunState(graphId, 'running');
 
     try {
       while (true) {
-        const nextNode = this.nextRunnableNode();
+        const nextNode = this.nextRunnableNode(graphId);
 
         if (!nextNode) {
           break;
@@ -144,13 +219,47 @@ export class AgentSession {
 
         await this.executeNode(nextNode);
       }
+
+      this.emitGraphRunState(graphId, this.graphHasBlockedNodes(graphId) ? 'blocked' : 'completed');
     } finally {
-      this.running = false;
+      this.runningGraphIds.delete(graphId);
     }
   }
 
   private async executeNode(node: MegaplanNode): Promise<void> {
     this.emit({ type: 'activeNodeChanged', activeNodeId: node.id, ...this.eventBase() });
+
+    if (node.childGraphId) {
+      await this.runGraph(node.childGraphId);
+
+      if (this.graphHasBlockedNodes(node.childGraphId)) {
+        this.updateNode(node.id, { status: 'blocked' });
+      } else {
+        this.updateNode(node.id, { status: 'completed', summary: `Completed subgraph ${node.childGraphId}.` });
+      }
+
+      this.emit({ type: 'activeNodeChanged', activeNodeId: undefined, ...this.eventBase() });
+      return;
+    }
+
+    if (node.expandable && node.abstraction !== 'terminal') {
+      await this.decomposeNode(node.id);
+
+      const updatedNode = this.snapshot.nodes.find((candidate) => candidate.id === node.id);
+
+      if (updatedNode?.childGraphId) {
+        await this.runGraph(updatedNode.childGraphId);
+
+        if (this.graphHasBlockedNodes(updatedNode.childGraphId)) {
+          this.updateNode(node.id, { status: 'blocked' });
+        } else {
+          this.updateNode(node.id, { status: 'completed', summary: `Completed subgraph ${updatedNode.childGraphId}.` });
+        }
+
+        this.emit({ type: 'activeNodeChanged', activeNodeId: undefined, ...this.eventBase() });
+        return;
+      }
+    }
 
     const workspaceSummary = this.workspaceRoot ? await summarizeWorkspace(this.workspaceRoot) : 'No workspace root provided.';
     const result = await this.agent.executeNode(node, workspaceSummary);
@@ -177,6 +286,7 @@ export class AgentSession {
       const toolUse = this.createPatchToolUse(node.id, result.proposedPatch.path, result.proposedPatch.content, result.proposedPatch.description);
       const approvalNode: MegaplanNode = {
         id: `${node.id}-approval-${toolUse.id}`,
+        graphId: node.graphId ?? ROOT_GRAPH_ID,
         parentId: node.parentId,
         title: `Approve patch: ${result.proposedPatch.path}`,
         kind: 'approval',
@@ -196,18 +306,20 @@ export class AgentSession {
     this.emit({ type: 'activeNodeChanged', activeNodeId: undefined, ...this.eventBase() });
   }
 
-  private nextRunnableNode(): MegaplanNode | undefined {
+  private nextRunnableNode(graphId: string): MegaplanNode | undefined {
     const completed = new Set(this.snapshot.nodes.filter((node) => ['completed', 'approved'].includes(node.status)).map((node) => node.id));
     const blockedStatuses = new Set(['active', 'blocked', 'invalidated', 'rejected']);
 
     return [...this.snapshot.nodes]
+      .filter((node) => (node.graphId ?? ROOT_GRAPH_ID) === graphId)
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
       .find((node) => {
-        if (node.kind === 'approval' || node.parentId || node.status !== 'pending' || blockedStatuses.has(node.status)) {
+        if (node.kind === 'approval' || node.status !== 'pending' || blockedStatuses.has(node.status)) {
           return false;
         }
 
-        const dependencies = this.snapshot.edges.filter((edge) => edge.target === node.id && (edge.kind === 'dependency' || edge.kind === 'sequence'));
+        const graphNodeIds = new Set(this.snapshot.nodes.filter((candidate) => (candidate.graphId ?? ROOT_GRAPH_ID) === graphId).map((candidate) => candidate.id));
+        const dependencies = this.snapshot.edges.filter((edge) => graphNodeIds.has(edge.source) && edge.target === node.id && (edge.kind === 'dependency' || edge.kind === 'sequence'));
         return dependencies.every((edge) => completed.has(edge.source));
       });
   }
@@ -246,7 +358,9 @@ export class AgentSession {
           ...this.eventBase()
         });
         this.updateNode(toolUse.nodeId, { status: 'completed' });
-        void this.runExecutionLoop();
+        this.updateEntailedApprovalNodes(toolUse.nodeId, 'approved');
+        const node = this.snapshot.nodes.find((candidate) => candidate.id === toolUse.nodeId);
+        void this.runGraph(node?.graphId ?? this.snapshot.focusedGraphId ?? this.snapshot.rootGraphId ?? ROOT_GRAPH_ID);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.updateToolUse(toolUseId, 'failed');
@@ -277,6 +391,16 @@ export class AgentSession {
     this.emit({ type: 'nodesUpdated', patches: [{ id: nodeId, patch }], ...this.eventBase() });
   }
 
+  private updateEntailedApprovalNodes(nodeId: string, status: MegaplanNode['status']): void {
+    const patches = this.snapshot.nodes
+      .filter((node) => node.kind === 'approval' && node.entailedBy?.includes(nodeId))
+      .map((node) => ({ id: node.id, patch: { status } }));
+
+    if (patches.length > 0) {
+      this.emit({ type: 'nodesUpdated', patches, ...this.eventBase() });
+    }
+  }
+
   private invalidateDownstream(nodeId: string, reason: string): void {
     const impactedNodeIds = getDownstreamNodeIds(nodeId, this.snapshot.edges);
     this.emit({ type: 'nodeInvalidated', nodeId, reason, impactedNodeIds, ...this.eventBase() });
@@ -294,6 +418,43 @@ export class AgentSession {
       proposedContent: content,
       status: 'pending'
     };
+  }
+
+  private createGraphScope(id: string, title: string, parentNodeId?: string, timestamp = new Date().toISOString(), summary?: string): MegaplanGraphScope {
+    return {
+      id,
+      title,
+      parentNodeId,
+      status: 'idle',
+      summary,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+  }
+
+  private normalizeNodes(nodes: MegaplanNode[], graphId: string, fallbackParentId?: string): MegaplanNode[] {
+    return nodes.map((node) => ({
+      ...node,
+      graphId,
+      parentId: node.parentId ?? fallbackParentId,
+      abstraction: node.abstraction ?? (node.expandable ? 'decomposable' : 'runnable')
+    }));
+  }
+
+  private markAlternativePromoted(alternatives: DecisionAlternative[], alternativeId: string, promotedGraphId: string): DecisionAlternative[] {
+    return alternatives.map((alternative) => ({
+      ...alternative,
+      status: alternative.id === alternativeId ? 'selected' : alternative.status === 'selected' ? 'candidate' : alternative.status,
+      promotedGraphId: alternative.id === alternativeId ? promotedGraphId : alternative.promotedGraphId
+    }));
+  }
+
+  private graphHasBlockedNodes(graphId: string): boolean {
+    return this.snapshot.nodes.some((node) => (node.graphId ?? ROOT_GRAPH_ID) === graphId && ['blocked', 'invalidated', 'rejected'].includes(node.status));
+  }
+
+  private emitGraphRunState(graphId: string, status: GraphRunStatus, message?: string): void {
+    this.emit({ type: 'graphRunStateChanged', graphId, status, message, ...this.eventBase() });
   }
 
   private emit(event: BridgeEvent): void {

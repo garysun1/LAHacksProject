@@ -62,7 +62,7 @@ Optional environment variables:
 5. In the Extension Development Host, run `Megaplan: Open Panel` from the Command Palette.
 6. Submit a task in the Megaplan panel.
 
-Sessions are persisted under `.megaplan/sessions/{sessionId}.json` in the workspace. The extension restores a configured session when `megaplan.sessionId` is set; otherwise it restores the latest valid persisted session if one exists.
+Sessions are persisted under `.megaplan/sessions/{sessionId}.json` in the workspace. The extension starts with an empty graph when `megaplan.sessionId` is unset and restores a saved graph only when `megaplan.sessionId` is set.
 
 ## VS Code settings
 

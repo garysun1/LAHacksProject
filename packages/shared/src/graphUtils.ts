@@ -1,4 +1,4 @@
-import type { MegaplanEdge, MegaplanNode } from './types';
+import type { MegaplanEdge, MegaplanGraphScope, MegaplanNode } from './types';
 
 export function buildNodeMap(nodes: MegaplanNode[]): Map<string, MegaplanNode> {
   return new Map(nodes.map((node) => [node.id, node]));
@@ -100,4 +100,44 @@ export function upsertEdges(existing: MegaplanEdge[], incoming: MegaplanEdge[]):
   }
 
   return Array.from(byId.values());
+}
+
+export function upsertGraphs(existing: MegaplanGraphScope[], incoming: MegaplanGraphScope[]): MegaplanGraphScope[] {
+  const byId = new Map(existing.map((graph) => [graph.id, graph]));
+
+  for (const graph of incoming) {
+    byId.set(graph.id, { ...byId.get(graph.id), ...graph });
+  }
+
+  return Array.from(byId.values());
+}
+
+export function getGraphNodes(graphId: string | undefined, nodes: MegaplanNode[]): MegaplanNode[] {
+  const focusedGraphId = graphId ?? 'root';
+  return nodes.filter((node) => (node.graphId ?? 'root') === focusedGraphId);
+}
+
+export function getGraphEdges(graphId: string | undefined, nodes: MegaplanNode[], edges: MegaplanEdge[]): MegaplanEdge[] {
+  const nodeIds = new Set(getGraphNodes(graphId, nodes).map((node) => node.id));
+  return edges.filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target));
+}
+
+export function getGraphBreadcrumbs(graphId: string | undefined, graphs: MegaplanGraphScope[] = [], nodes: MegaplanNode[] = []): MegaplanGraphScope[] {
+  const graphById = new Map(graphs.map((graph) => [graph.id, graph]));
+  const nodeById = buildNodeMap(nodes);
+  const breadcrumbs: MegaplanGraphScope[] = [];
+  let current = graphById.get(graphId ?? 'root');
+
+  while (current) {
+    breadcrumbs.unshift(current);
+
+    if (!current.parentNodeId) {
+      break;
+    }
+
+    const parentNode = nodeById.get(current.parentNodeId);
+    current = parentNode?.graphId ? graphById.get(parentNode.graphId) : graphById.get('root');
+  }
+
+  return breadcrumbs;
 }

@@ -1,17 +1,19 @@
-import type { MegaplanNode, ToolUseRequest } from '@megaplan/shared';
+import type { MegaplanGraphScope, MegaplanNode, ToolUseRequest } from '@megaplan/shared';
 
 type Props = {
   node?: MegaplanNode;
+  graphs: MegaplanGraphScope[];
   toolUses: ToolUseRequest[];
   onCommand: (command: { type: string; [key: string]: unknown }) => void;
 };
 
-export function NodeInspector({ node, toolUses, onCommand }: Props): JSX.Element {
+export function NodeInspector({ node, graphs, toolUses, onCommand }: Props): JSX.Element {
   if (!node) {
     return <aside className="inspector empty">Select a node to inspect rationale, artifacts, and decisions.</aside>;
   }
 
   const nodeToolUses = toolUses.filter((toolUse) => toolUse.nodeId === node.id || node.entailedBy?.includes(toolUse.nodeId));
+  const childGraph = node.childGraphId ? graphs.find((graph) => graph.id === node.childGraphId) : undefined;
 
   return (
     <aside className="inspector">
@@ -21,17 +23,32 @@ export function NodeInspector({ node, toolUses, onCommand }: Props): JSX.Element
       </div>
       <h2>{node.title}</h2>
       {node.summary ? <p>{node.summary}</p> : null}
+      {childGraph ? (
+        <section>
+          <h3>Subgraph</h3>
+          <button className="alternative" type="button" onClick={() => onCommand({ type: 'focusGraph', graphId: childGraph.id })}>
+            <strong>{childGraph.title}</strong>
+            <span>{childGraph.status}</span>
+            {childGraph.summary ? <small>{childGraph.summary}</small> : null}
+          </button>
+        </section>
+      ) : null}
       {node.rationale ? <section><h3>Rationale</h3><p>{node.rationale}</p></section> : null}
 
       {node.alternatives?.length ? (
         <section>
           <h3>Alternatives</h3>
           {node.alternatives.map((alternative) => (
-            <button className="alternative" type="button" key={alternative.id} onClick={() => onCommand({ type: 'selectAlternative', nodeId: node.id, alternativeId: alternative.id })}>
-              <strong>{alternative.title}{alternative.recommended ? ' · Recommended' : ''}</strong>
+            <div className="alternative" key={alternative.id}>
+              <strong>{alternative.title}{alternative.recommended ? ' · Recommended' : ''}{alternative.status ? ` · ${alternative.status}` : ''}</strong>
               <span>{alternative.summary}</span>
               <small>{alternative.tradeoffs.join(' · ')}</small>
-            </button>
+              <span className="row-actions">
+                <button type="button" onClick={() => onCommand({ type: 'selectAlternative', nodeId: node.id, alternativeId: alternative.id })}>Select</button>
+                <button type="button" onClick={() => onCommand({ type: 'promoteAlternative', nodeId: node.id, alternativeId: alternative.id })}>Promote to subgraph</button>
+                {alternative.promotedGraphId ? <button type="button" onClick={() => onCommand({ type: 'focusGraph', graphId: alternative.promotedGraphId })}>Open graph</button> : null}
+              </span>
+            </div>
           ))}
         </section>
       ) : null}

@@ -81,6 +81,7 @@ export class MegaplanPanel {
     const configuredSessionId = configuration.get<string>('sessionId')?.trim();
     const sessionId = configuredSessionId || randomId('session');
     const autoConnect = configuration.get<boolean>('autoConnect') ?? true;
+    const restoreConfiguredSession = Boolean(configuredSessionId);
 
     this.controller = new GraphController(
       workspaceRoot,
@@ -95,7 +96,8 @@ export class MegaplanPanel {
         onError: (message) => this.postMessage({ type: 'error', message })
       },
       bridgeBaseUrl,
-      sessionId
+      sessionId,
+      restoreConfiguredSession
     );
 
     await this.controller.initialize();

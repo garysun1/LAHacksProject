@@ -13,9 +13,10 @@ type Props = {
   impactedNodeIds: string[];
   onSelectNode: (nodeId: string) => void;
   onExpandNode: (nodeId: string) => void;
+  onFocusGraph: (graphId: string) => void;
 };
 
-export function MegaplanGraph({ snapshot, selectedNodeId, impactedNodeIds, onSelectNode, onExpandNode }: Props): JSX.Element {
+export function MegaplanGraph({ snapshot, selectedNodeId, impactedNodeIds, onSelectNode, onExpandNode, onFocusGraph }: Props): JSX.Element {
   const impacted = useMemo(() => new Set(impactedNodeIds), [impactedNodeIds]);
 
   const nodes = useMemo<MegaplanFlowNode[]>(() => {
@@ -28,10 +29,11 @@ export function MegaplanGraph({ snapshot, selectedNodeId, impactedNodeIds, onSel
         impacted: impacted.has(node.id),
         selected: selectedNodeId === node.id,
         onInspect: onSelectNode,
-        onExpand: onExpandNode
+        onExpand: onExpandNode,
+        onFocusGraph
       }
     }));
-  }, [impacted, onExpandNode, onSelectNode, selectedNodeId, snapshot.nodes]);
+  }, [impacted, onExpandNode, onFocusGraph, onSelectNode, selectedNodeId, snapshot.nodes]);
 
   const edges = useMemo<Edge[]>(() => {
     return snapshot.edges.map((edge) => ({

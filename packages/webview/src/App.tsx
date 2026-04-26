@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { createEmptySnapshot, getDownstreamNodeIds, type BridgeConnectionState, type HumanCommand, type MegaplanGraphSnapshot } from '@megaplan/shared';
+import { createEmptySnapshot, getDownstreamNodeIds, getGraphBreadcrumbs, getGraphEdges, getGraphNodes, type BridgeConnectionState, type HumanCommand, type MegaplanGraphSnapshot } from '@megaplan/shared';
 import { MegaplanGraph } from './components/MegaplanGraph';
 import { NodeInspector } from './components/NodeInspector';
 import { RipplePanel } from './components/RipplePanel';
@@ -41,8 +41,18 @@ export function App(): JSX.Element {
   }, []);
 
   const selectedNode = useMemo(() => snapshot.nodes.find((node) => node.id === selectedNodeId), [selectedNodeId, snapshot.nodes]);
+  const focusedGraphId = snapshot.focusedGraphId ?? snapshot.rootGraphId ?? 'root';
+  const focusedNodes = useMemo(() => getGraphNodes(focusedGraphId, snapshot.nodes), [focusedGraphId, snapshot.nodes]);
+  const focusedEdges = useMemo(() => getGraphEdges(focusedGraphId, snapshot.nodes, snapshot.edges), [focusedGraphId, snapshot.nodes, snapshot.edges]);
+  const focusedSnapshot = useMemo<MegaplanGraphSnapshot>(() => ({
+    ...snapshot,
+    nodes: focusedNodes,
+    edges: focusedEdges
+  }), [focusedEdges, focusedNodes, snapshot]);
+  const breadcrumbs = useMemo(() => getGraphBreadcrumbs(focusedGraphId, snapshot.graphs, snapshot.nodes), [focusedGraphId, snapshot.graphs, snapshot.nodes]);
+  const focusedGraph = useMemo(() => snapshot.graphs?.find((graph) => graph.id === focusedGraphId), [focusedGraphId, snapshot.graphs]);
 
-  const impactedNodeIds = useMemo(() => selectedNodeId ? getDownstreamNodeIds(selectedNodeId, snapshot.edges) : [], [selectedNodeId, snapshot.edges]);
+  const impactedNodeIds = useMemo(() => selectedNodeId ? getDownstreamNodeIds(selectedNodeId, focusedEdges) : [], [selectedNodeId, focusedEdges]);
 
   const sendCommand = useCallback((command: { type: string; [key: string]: unknown }) => {
     postMessage({ type: 'command', command: command as Omit<HumanCommand, 'commandId' | 'sessionId' | 'timestamp'> });
@@ -81,23 +91,38 @@ export function App(): JSX.Element {
       {error ? <div className="error-banner"><span>{error}</span><button type="button" onClick={() => setError(undefined)}>Dismiss</button></div> : null}
 
       <section className="phase-strip">
-        <PhaseCard label="Planning" count={snapshot.nodes.filter((node) => node.phase === 'planning').length} />
-        <PhaseCard label="Execution" count={snapshot.nodes.filter((node) => node.phase === 'execution').length} />
-        <PhaseCard label="Review" count={snapshot.nodes.filter((node) => node.phase === 'review').length} />
+        <PhaseCard label="Planning" count={focusedNodes.filter((node) => node.phase === 'planning').length} />
+        <PhaseCard label="Execution" count={focusedNodes.filter((node) => node.phase === 'execution').length} />
+        <PhaseCard label="Review" count={focusedNodes.filter((node) => node.phase === 'review').length} />
         <RipplePanel impactedNodeIds={impactedNodeIds} />
+      </section>
+
+      <section className="graph-nav">
+        <div className="breadcrumbs">
+          {breadcrumbs.map((graph, index) => (
+            <button type="button" key={graph.id} className={graph.id === focusedGraphId ? 'active' : ''} onClick={() => sendCommand({ type: 'focusGraph', graphId: graph.id })}>
+              {index > 0 ? '› ' : ''}{graph.title}
+            </button>
+          ))}
+        </div>
+        <div className="graph-actions">
+          <span>{focusedGraph?.status ?? 'idle'}</span>
+          <button type="button" onClick={() => sendCommand({ type: 'runGraph', graphId: focusedGraphId })}>Run graph</button>
+        </div>
       </section>
 
       <section className="workspace">
         <div className="graph-panel">
           <MegaplanGraph
-            snapshot={snapshot}
+            snapshot={focusedSnapshot}
             selectedNodeId={selectedNodeId}
             impactedNodeIds={impactedNodeIds}
             onSelectNode={setSelectedNodeId}
             onExpandNode={(nodeId) => sendCommand({ type: 'decomposeNode', nodeId })}
+            onFocusGraph={(graphId) => sendCommand({ type: 'focusGraph', graphId })}
           />
         </div>
-        <NodeInspector node={selectedNode} toolUses={snapshot.pendingToolUses ?? []} onCommand={sendCommand} />
+        <NodeInspector node={selectedNode} graphs={snapshot.graphs ?? []} toolUses={snapshot.pendingToolUses ?? []} onCommand={sendCommand} />
       </section>
     </main>
   );

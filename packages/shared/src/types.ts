@@ -10,12 +10,30 @@ export type ArtifactKind = 'file' | 'range' | 'patch' | 'command' | 'observation
 
 export type ToolUseKind = 'patch' | 'command';
 
+export type NodeAbstraction = 'abstract' | 'decomposable' | 'runnable' | 'terminal';
+
+export type AlternativeStatus = 'candidate' | 'selected' | 'rejected';
+
+export type GraphRunStatus = 'idle' | 'running' | 'completed' | 'blocked' | 'error';
+
 export type DecisionAlternative = {
   id: string;
   title: string;
   summary: string;
   tradeoffs: string[];
   recommended?: boolean;
+  status?: AlternativeStatus;
+  promotedGraphId?: string;
+};
+
+export type MegaplanGraphScope = {
+  id: string;
+  title: string;
+  parentNodeId?: string;
+  status: GraphRunStatus;
+  summary?: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type NodeArtifact = {
@@ -36,11 +54,14 @@ export type NodeArtifact = {
 
 export type MegaplanNode = {
   id: string;
+  graphId?: string;
   parentId?: string;
+  childGraphId?: string;
   title: string;
   kind: NodeKind;
   phase: GraphPhase;
   status: NodeStatus;
+  abstraction?: NodeAbstraction;
   confidence?: number;
   summary?: string;
   rationale?: string;
@@ -80,11 +101,15 @@ export type MegaplanGraphSnapshot = {
   sessionId: string;
   createdAt: string;
   updatedAt: string;
+  rootGraphId?: string;
+  focusedGraphId?: string;
   task?: string;
   phase: GraphPhase;
+  graphs?: MegaplanGraphScope[];
   nodes: MegaplanNode[];
   edges: MegaplanEdge[];
   activeNodeId?: string;
+  activeGraphId?: string;
   bridgeBaseUrl?: string;
   eventLog?: BridgeEvent[];
   pendingToolUses?: ToolUseRequest[];
@@ -121,9 +146,27 @@ export type EdgesUpdatedEvent = BridgeEventBase & {
   removeIds?: string[];
 };
 
+export type GraphsUpdatedEvent = BridgeEventBase & {
+  type: 'graphsUpdated';
+  upsert?: MegaplanGraphScope[];
+  removeIds?: string[];
+};
+
 export type ActiveNodeChangedEvent = BridgeEventBase & {
   type: 'activeNodeChanged';
   activeNodeId?: string;
+};
+
+export type GraphFocusedEvent = BridgeEventBase & {
+  type: 'graphFocused';
+  graphId: string;
+};
+
+export type GraphRunStateChangedEvent = BridgeEventBase & {
+  type: 'graphRunStateChanged';
+  graphId: string;
+  status: GraphRunStatus;
+  message?: string;
 };
 
 export type NodeInvalidatedEvent = BridgeEventBase & {
@@ -170,7 +213,10 @@ export type BridgeEvent =
   | NodesAddedEvent
   | NodesUpdatedEvent
   | EdgesUpdatedEvent
+  | GraphsUpdatedEvent
   | ActiveNodeChangedEvent
+  | GraphFocusedEvent
+  | GraphRunStateChangedEvent
   | NodeInvalidatedEvent
   | AlternativesProposedEvent
   | ApprovalRequestedEvent
@@ -187,10 +233,13 @@ export type HumanCommandBase = {
 export type HumanCommand =
   | (HumanCommandBase & { type: 'startTask'; task: string; workspaceRoot?: string })
   | (HumanCommandBase & { type: 'decomposeNode'; nodeId: string })
+  | (HumanCommandBase & { type: 'focusGraph'; graphId: string })
+  | (HumanCommandBase & { type: 'runGraph'; graphId?: string })
   | (HumanCommandBase & { type: 'reorderNodes'; parentId?: string; orderedNodeIds: string[] })
   | (HumanCommandBase & { type: 'deleteNode'; nodeId: string })
   | (HumanCommandBase & { type: 'pinNode'; nodeId: string; pinned: boolean })
   | (HumanCommandBase & { type: 'selectAlternative'; nodeId: string; alternativeId: string })
+  | (HumanCommandBase & { type: 'promoteAlternative'; nodeId: string; alternativeId: string })
   | (HumanCommandBase & { type: 'approveNode'; nodeId: string })
   | (HumanCommandBase & { type: 'rejectNode'; nodeId: string; reason?: string })
   | (HumanCommandBase & { type: 'approveToolUse'; toolUseId: string })

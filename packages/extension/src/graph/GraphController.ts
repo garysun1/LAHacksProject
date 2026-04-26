@@ -21,7 +21,8 @@ export class GraphController {
     private readonly store: SessionStore,
     private readonly handlers: GraphControllerHandlers,
     private readonly bridgeBaseUrl: string,
-    private readonly sessionId: string
+    private readonly sessionId: string,
+    private readonly restoreConfiguredSession: boolean
   ) {
     this.snapshot = createEmptySnapshot(sessionId, bridgeBaseUrl);
     this.connection = { status: 'disconnected', bridgeBaseUrl };
@@ -30,17 +31,17 @@ export class GraphController {
   async initialize(): Promise<void> {
     let configuredSession: MegaplanGraphSnapshot | undefined;
 
-    try {
-      configuredSession = await this.store.load(this.sessionId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.handlers.onError(message);
-    }
+    if (this.restoreConfiguredSession) {
+      try {
+        configuredSession = await this.store.load(this.sessionId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.handlers.onError(message);
+      }
 
-    const latestSession = configuredSession ?? await this.store.loadLatest();
-
-    if (latestSession) {
-      this.snapshot = { ...latestSession, bridgeBaseUrl: this.bridgeBaseUrl };
+      if (configuredSession) {
+        this.snapshot = { ...configuredSession, bridgeBaseUrl: this.bridgeBaseUrl };
+      }
     }
 
     this.handlers.onSnapshot(this.snapshot, this.connection);

@@ -90,7 +90,7 @@ pre {
 
 .app-shell {
   display: grid;
-  grid-template-rows: 35px auto auto 1fr;
+  grid-template-rows: 35px auto auto auto 1fr;
   height: 100vh;
   background: var(--mp-bg);
 }
@@ -260,6 +260,51 @@ pre {
 .ripple-panel span {
   color: var(--mp-muted);
   font-size: 12px;
+}
+
+.graph-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--mp-border);
+  background: var(--mp-panel-alt);
+}
+
+.breadcrumbs,
+.graph-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.breadcrumbs {
+  overflow: hidden;
+}
+
+.breadcrumbs button {
+  overflow: hidden;
+  max-width: 220px;
+  min-height: 24px;
+  padding: 2px 6px;
+  color: var(--mp-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breadcrumbs button.active {
+  color: var(--mp-fg);
+  background: var(--mp-row-hover);
+}
+
+.graph-actions {
+  flex-shrink: 0;
+  color: var(--mp-muted);
+  font-size: 12px;
+  text-transform: capitalize;
 }
 
 .workspace {

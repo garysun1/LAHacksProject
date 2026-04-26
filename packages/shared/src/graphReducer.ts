@@ -1,5 +1,5 @@
-import type { BridgeEvent, MegaplanGraphSnapshot } from './types';
-import { assertAcyclic, getDownstreamNodeIds, upsertEdges, upsertNodes } from './graphUtils';
+import type { BridgeEvent, MegaplanGraphScope, MegaplanGraphSnapshot } from './types';
+import { assertAcyclic, getDownstreamNodeIds, upsertEdges, upsertGraphs, upsertNodes } from './graphUtils';
 
 export function createEmptySnapshot(sessionId: string, bridgeBaseUrl?: string): MegaplanGraphSnapshot {
   const now = new Date().toISOString();
@@ -9,7 +9,16 @@ export function createEmptySnapshot(sessionId: string, bridgeBaseUrl?: string): 
     sessionId,
     createdAt: now,
     updatedAt: now,
+    rootGraphId: 'root',
+    focusedGraphId: 'root',
     phase: 'planning',
+    graphs: [{
+      id: 'root',
+      title: 'Project graph',
+      status: 'idle',
+      createdAt: now,
+      updatedAt: now
+    }],
     nodes: [],
     edges: [],
     bridgeBaseUrl,
@@ -59,6 +68,14 @@ export function reduceBridgeEvent(snapshot: MegaplanGraphSnapshot, event: Bridge
       break;
     }
 
+    case 'graphsUpdated': {
+      next = {
+        ...next,
+        graphs: upsertGraphs((next.graphs ?? []).filter((graph) => !(event.removeIds ?? []).includes(graph.id)), event.upsert ?? [])
+      };
+      break;
+    }
+
     case 'activeNodeChanged': {
       next = {
         ...next,
@@ -67,6 +84,27 @@ export function reduceBridgeEvent(snapshot: MegaplanGraphSnapshot, event: Bridge
           ...node,
           status: node.id === event.activeNodeId ? 'active' : node.status === 'active' ? 'pending' : node.status
         }))
+      };
+      break;
+    }
+
+    case 'graphFocused': {
+      next = {
+        ...next,
+        focusedGraphId: event.graphId
+      };
+      break;
+    }
+
+    case 'graphRunStateChanged': {
+      next = {
+        ...next,
+        activeGraphId: event.status === 'running' ? event.graphId : next.activeGraphId === event.graphId ? undefined : next.activeGraphId,
+        graphs: updateGraph(next.graphs ?? [], event.graphId, {
+          status: event.status,
+          summary: event.message,
+          updatedAt: event.timestamp
+        })
       };
       break;
     }
@@ -145,4 +183,19 @@ function upsertToolUses(existing: NonNullable<MegaplanGraphSnapshot['pendingTool
   }
 
   return Array.from(byId.values());
+}
+
+function updateGraph(graphs: MegaplanGraphScope[], graphId: string, patch: Partial<MegaplanGraphScope>): MegaplanGraphScope[] {
+  if (graphs.some((graph) => graph.id === graphId)) {
+    return graphs.map((graph) => graph.id === graphId ? { ...graph, ...patch } : graph);
+  }
+
+  return [...graphs, {
+    id: graphId,
+    title: graphId,
+    status: patch.status ?? 'idle',
+    createdAt: patch.updatedAt ?? new Date().toISOString(),
+    updatedAt: patch.updatedAt ?? new Date().toISOString(),
+    summary: patch.summary
+  }];
 }
