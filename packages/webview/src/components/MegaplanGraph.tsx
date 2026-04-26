@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Background, Controls, MiniMap, ReactFlow, type Edge, type NodeTypes } from '@xyflow/react';
+import { Background, Controls, ReactFlow, type Edge, type NodeTypes } from '@xyflow/react';
 import type { MegaplanGraphSnapshot, MegaplanNode as MegaplanNodeData } from '@megaplan/shared';
 import { MegaplanNode, type MegaplanFlowNode } from './MegaplanNode';
 
@@ -57,7 +57,6 @@ export function MegaplanGraph({ snapshot, selectedNodeId, impactedNodeIds, onSel
     >
       <Background />
       <Controls />
-      <MiniMap pannable zoomable />
     </ReactFlow>
   );
 }
