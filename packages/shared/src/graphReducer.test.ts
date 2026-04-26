@@ -119,6 +119,39 @@ describe('reduceBridgeEvent', () => {
     expect(next.nodes).toEqual([]);
   });
 
+  it('removes nodes and clears active/tool state through node update removeIds', () => {
+    const toolUse: ToolUseRequest = {
+      id: 'tool-1',
+      kind: 'patch',
+      nodeId: 'a',
+      title: 'Write file',
+      description: 'Write a proposed file.',
+      path: 'src/file.ts',
+      proposedContent: 'content',
+      status: 'pending'
+    };
+    const snapshot = {
+      ...reduceBridgeEvent(createEmptySnapshot('session-1'), {
+        ...baseEvent('nodesAdded'),
+        type: 'nodesAdded',
+        nodes: [baseNode('a'), baseNode('b')],
+        edges: [{ id: 'a-b', source: 'a', target: 'b', kind: 'sequence' }]
+      }),
+      activeNodeId: 'a',
+      pendingToolUses: [toolUse]
+    };
+    const next = reduceBridgeEvent(snapshot, {
+      ...baseEvent('nodesUpdated'),
+      type: 'nodesUpdated',
+      patches: [],
+      removeIds: ['a']
+    });
+
+    expect(next.nodes.map((node) => node.id)).toEqual(['b']);
+    expect(next.activeNodeId).toBeUndefined();
+    expect(next.pendingToolUses).toEqual([]);
+  });
+
   it('tracks focused recursive graphs and run state', () => {
     const snapshot = createEmptySnapshot('session-1');
     const withGraph = reduceBridgeEvent(snapshot, {
@@ -250,19 +283,33 @@ describe('reduceBridgeEvent', () => {
       commandId: 'cmd-2',
       sessionId: 'session-1',
       timestamp: '2026-01-01T00:00:00.000Z',
+      type: 'hydrateSession',
+      snapshot: createEmptySnapshot('session-1')
+    })).toMatchObject({ type: 'hydrateSession' });
+    expect(humanCommandSchema.parse({
+      commandId: 'cmd-3',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
       type: 'constructGraph',
       graphId: 'graph-node-1',
       instructions: 'Focus on implementation details.'
     })).toMatchObject({ type: 'constructGraph' });
     expect(humanCommandSchema.parse({
-      commandId: 'cmd-3',
+      commandId: 'cmd-4',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      type: 'clearGraph',
+      graphId: 'graph-node-1'
+    })).toMatchObject({ type: 'clearGraph' });
+    expect(humanCommandSchema.parse({
+      commandId: 'cmd-5',
       sessionId: 'session-1',
       timestamp: '2026-01-01T00:00:00.000Z',
       type: 'runNode',
       nodeId: 'node-1'
     })).toMatchObject({ type: 'runNode' });
     expect(humanCommandSchema.parse({
-      commandId: 'cmd-4',
+      commandId: 'cmd-6',
       sessionId: 'session-1',
       timestamp: '2026-01-01T00:00:00.000Z',
       type: 'updateNodeDetails',

@@ -127,7 +127,8 @@ export const bridgeEventSchema: z.ZodType<unknown> = z.lazy(() => z.discriminate
     patches: z.array(z.object({
       id: z.string().min(1),
       patch: megaplanNodeSchema.partial()
-    }))
+    })),
+    removeIds: z.array(z.string()).optional()
   }),
   bridgeEventBaseSchema.extend({
     type: z.literal('edgesUpdated'),
@@ -194,9 +195,11 @@ export const humanCommandBaseSchema = z.object({
 
 export const humanCommandSchema = z.discriminatedUnion('type', [
   humanCommandBaseSchema.extend({ type: z.literal('startTask'), task: z.string().min(1), workspaceRoot: z.string().optional() }),
+  humanCommandBaseSchema.extend({ type: z.literal('hydrateSession'), snapshot: graphSnapshotSchema, workspaceRoot: z.string().optional() }),
   humanCommandBaseSchema.extend({ type: z.literal('decomposeNode'), nodeId: z.string().min(1) }),
   humanCommandBaseSchema.extend({ type: z.literal('openNodeGraph'), nodeId: z.string().min(1) }),
   humanCommandBaseSchema.extend({ type: z.literal('constructGraph'), graphId: z.string().optional(), instructions: z.string().optional(), workspaceRoot: z.string().optional() }),
+  humanCommandBaseSchema.extend({ type: z.literal('clearGraph'), graphId: z.string().optional() }),
   humanCommandBaseSchema.extend({ type: z.literal('focusGraph'), graphId: z.string().min(1) }),
   humanCommandBaseSchema.extend({ type: z.literal('runGraph'), graphId: z.string().optional() }),
   humanCommandBaseSchema.extend({ type: z.literal('runNode'), nodeId: z.string().min(1) }),

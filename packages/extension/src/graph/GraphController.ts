@@ -90,6 +90,7 @@ export class GraphController {
     }
 
     try {
+      await this.hydrateBridgeSession();
       await this.bridgeClient?.sendCommand(humanCommand);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -104,6 +105,21 @@ export class GraphController {
 
   getConnection(): BridgeConnectionState {
     return this.connection;
+  }
+
+  private async hydrateBridgeSession(): Promise<void> {
+    if (!this.bridgeClient) {
+      return;
+    }
+
+    await this.bridgeClient.sendCommand({
+      type: 'hydrateSession',
+      commandId: randomId('cmd'),
+      sessionId: this.snapshot.sessionId,
+      timestamp: new Date().toISOString(),
+      snapshot: this.snapshot,
+      workspaceRoot: this.workspaceRoot
+    });
   }
 
   private async applyBridgeEvent(event: BridgeEvent): Promise<void> {

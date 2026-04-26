@@ -52,10 +52,12 @@ export function reduceBridgeEvent(snapshot: MegaplanGraphSnapshot, event: Bridge
       const patches = new Map(event.patches.map((patch) => [patch.id, patch.patch]));
       next = {
         ...next,
-        nodes: next.nodes.map((node) => {
+        nodes: next.nodes.filter((node) => !(event.removeIds ?? []).includes(node.id)).map((node) => {
           const patch = patches.get(node.id);
           return patch ? { ...node, ...patch } : node;
-        })
+        }),
+        activeNodeId: event.removeIds?.includes(next.activeNodeId ?? '') ? undefined : next.activeNodeId,
+        pendingToolUses: (next.pendingToolUses ?? []).filter((toolUse) => !(event.removeIds ?? []).includes(toolUse.nodeId))
       };
       break;
     }

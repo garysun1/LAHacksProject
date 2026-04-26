@@ -105,6 +105,22 @@ export function App(): JSX.Element {
     sendCommand({ type: 'runGraph', graphId: focusedGraphId });
   }, [focusedGraphId, focusedNodes, isFocusedGraphEmpty, isRootGraph, selectedNode, sendCommand, task]);
 
+  const clearFocusedGraph = useCallback(() => {
+    if (isFocusedGraphEmpty) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Clear ${focusedGraph?.title ?? 'the focused graph'}? This removes the current graph pane so you can construct it again.`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setSelectedNodeId(undefined);
+    setTask('');
+    sendCommand({ type: 'clearGraph', graphId: focusedGraphId });
+  }, [focusedGraph?.title, focusedGraphId, isFocusedGraphEmpty, sendCommand]);
+
   const primaryActionLabel = isFocusedGraphEmpty ? 'Construct' : selectedNode ? 'Run node' : 'Run graph';
   const taskPlaceholder = isFocusedGraphEmpty
     ? isRootGraph
@@ -154,6 +170,7 @@ export function App(): JSX.Element {
         </div>
         <div className="graph-actions">
           <span>{focusedGraph?.status ?? 'idle'}</span>
+          <button type="button" onClick={clearFocusedGraph} disabled={isFocusedGraphEmpty}>Clear</button>
         </div>
       </section>
 

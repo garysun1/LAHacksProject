@@ -159,7 +159,7 @@ describe('AgentSession', () => {
     expect(activeNodeIds.lastIndexOf('second')).toBeGreaterThan(activeNodeIds.indexOf('first'));
   });
 
-  it('rejects tool use through bridge events and invalidates downstream nodes', async () => {
+  it('rejects tool use through bridge events and marks the node rejected', async () => {
     const workspaceRoot = await makeTempWorkspace();
     const events: BridgeEvent[] = [];
     const agent = createAgent({
@@ -206,9 +206,112 @@ describe('AgentSession', () => {
     });
 
     expect(events.some((event) => event.type === 'toolUseUpdated' && event.patch.status === 'rejected')).toBe(true);
+    expect(events.some((event) => event.type === 'nodeInvalidated')).toBe(false);
     expect(session.getSnapshot().pendingToolUses?.[0]?.status).toBe('rejected');
-    expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')?.status).toBe('invalidated');
+    expect(session.getSnapshot().nodes.find((node) => node.id === 'node-1')?.status).toBe('rejected');
     await expect(fs.readFile(path.join(workspaceRoot, 'src/rejected.ts'), 'utf8')).rejects.toThrow();
+  });
+
+  it('marks rejected tool use nodes and following supergraph nodes rejected', async () => {
+    const workspaceRoot = await makeTempWorkspace();
+    const events: BridgeEvent[] = [];
+    const agent = createAgent({
+      planNodes: [
+        planNode({ id: 'parent', title: 'Implement parent step', expandable: true, abstraction: 'decomposable', order: 1 }),
+        planNode({ id: 'sibling', title: 'Validate parent step', kind: 'review', order: 2, abstraction: 'decomposable' })
+      ],
+      planEdges: [{ id: 'parent-sibling', source: 'parent', target: 'sibling', kind: 'sequence' }],
+      execution: completedExecution(),
+      executeNode: async (node) => {
+        if (node.id === 'child-a') {
+          return {
+            summary: 'Patch is ready.',
+            rationale: 'The child file should be written after approval.',
+            confidence: 0.7,
+            observations: [],
+            proposedPatch: {
+              path: 'src/rejected-child.ts',
+              content: 'export const rejectedChild = true;\n',
+              description: 'Create rejected child file.'
+            }
+          };
+        }
+
+        return completedExecution();
+      }
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'constructGraph',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      graphId: 'root',
+      instructions: 'Create ordered plan',
+      workspaceRoot
+    });
+
+    const snapshot = session.getSnapshot();
+    const now = '2026-01-01T00:00:01.000Z';
+    snapshot.graphs?.push(
+      {
+        id: 'graph-parent',
+        title: 'Implement parent step',
+        parentNodeId: 'parent',
+        status: 'idle',
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        id: 'graph-sibling',
+        title: 'Validate parent step',
+        parentNodeId: 'sibling',
+        status: 'idle',
+        createdAt: now,
+        updatedAt: now
+      }
+    );
+    Object.assign(snapshot.nodes.find((node) => node.id === 'parent') ?? {}, {
+      childGraphId: 'graph-parent',
+      expanded: true
+    });
+    Object.assign(snapshot.nodes.find((node) => node.id === 'sibling') ?? {}, {
+      childGraphId: 'graph-sibling',
+      expanded: true
+    });
+    snapshot.nodes.push(
+      planNode({ id: 'child-a', title: 'Write child file', graphId: 'graph-parent', parentId: 'parent', order: 1, abstraction: 'terminal' }),
+      planNode({ id: 'child-b', title: 'Validate child file', graphId: 'graph-parent', parentId: 'parent', kind: 'review', order: 2, abstraction: 'terminal' }),
+      planNode({ id: 'sibling-child', title: 'Validate sibling child file', graphId: 'graph-sibling', parentId: 'sibling', kind: 'review', order: 1, abstraction: 'terminal' })
+    );
+    snapshot.edges.push({ id: 'sequence-child-a-child-b', source: 'child-a', target: 'child-b', kind: 'sequence' });
+
+    await session.handleCommand({
+      type: 'runGraph',
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      graphId: 'root'
+    });
+
+    const approval = session.getSnapshot().pendingToolUses?.[0];
+    await session.handleCommand({
+      type: 'rejectToolUse',
+      commandId: 'cmd-3',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:03.000Z',
+      toolUseId: approval?.id ?? ''
+    });
+
+    const statusById = new Map(session.getSnapshot().nodes.map((node) => [node.id, node.status]));
+    expect(statusById.get('child-a')).toBe('rejected');
+    expect(statusById.get('child-b')).toBe('rejected');
+    expect(statusById.get('parent')).toBe('rejected');
+    expect(statusById.get('sibling')).toBe('rejected');
+    expect(statusById.get('sibling-child')).toBe('rejected');
+    expect(events.some((event) => event.type === 'nodeInvalidated')).toBe(false);
+    await expect(fs.readFile(path.join(workspaceRoot, 'src/rejected-child.ts'), 'utf8')).rejects.toThrow();
   });
 
   it('selects an alternative by replacing the displayed node details', async () => {
@@ -738,6 +841,195 @@ describe('AgentSession', () => {
       ['child-b', 'completed']
     ]);
     expect(session.getSnapshot().focusedGraphId).toBe('root');
+  });
+
+  it('clears the root graph so it can be constructed again', async () => {
+    const events: BridgeEvent[] = [];
+    const agent = createAgent({
+      planNodes: [
+        planNode({ id: 'first', title: 'First step', order: 1, abstraction: 'terminal' }),
+        planNode({ id: 'second', title: 'Second step', order: 2, abstraction: 'terminal' })
+      ],
+      planEdges: [{ id: 'first-second', source: 'first', target: 'second', kind: 'sequence' }],
+      execution: completedExecution()
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'constructGraph',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      graphId: 'root',
+      instructions: 'Create ordered plan'
+    });
+    await session.handleCommand({
+      type: 'clearGraph',
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      graphId: 'root'
+    });
+
+    expect(session.getSnapshot()).toMatchObject({
+      focusedGraphId: 'root',
+      nodes: [],
+      edges: []
+    });
+    expect(session.getSnapshot().graphs?.map((graph) => graph.id)).toEqual(['root']);
+    expect(events.some((event) => event.type === 'nodesUpdated' && event.removeIds?.includes('first') && event.removeIds.includes('second'))).toBe(true);
+
+    await session.handleCommand({
+      type: 'constructGraph',
+      commandId: 'cmd-3',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      graphId: 'root',
+      instructions: 'Create ordered plan again'
+    });
+
+    expect(session.getSnapshot().nodes.map((node) => node.id)).toEqual(['first', 'second']);
+  });
+
+  it('clears a hydrated graph after the bridge session restarts', async () => {
+    const events: BridgeEvent[] = [];
+    const agent = createAgent({
+      planNodes: [
+        planNode({ id: 'first', title: 'First step', order: 1, abstraction: 'terminal' }),
+        planNode({ id: 'second', title: 'Second step', order: 2, abstraction: 'terminal' })
+      ],
+      planEdges: [{ id: 'first-second', source: 'first', target: 'second', kind: 'sequence' }],
+      execution: completedExecution()
+    });
+    const originalSession = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await originalSession.handleCommand({
+      type: 'constructGraph',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      graphId: 'root',
+      instructions: 'Create ordered plan'
+    });
+
+    const restartedSession = new AgentSession('session-1', agent, (event) => events.push(event));
+    await restartedSession.handleCommand({
+      type: 'hydrateSession',
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      snapshot: originalSession.getSnapshot()
+    });
+    await restartedSession.handleCommand({
+      type: 'clearGraph',
+      commandId: 'cmd-3',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      graphId: 'root'
+    });
+
+    expect(restartedSession.getSnapshot()).toMatchObject({
+      focusedGraphId: 'root',
+      nodes: [],
+      edges: []
+    });
+    expect(events.some((event) => event.type === 'nodesUpdated' && event.removeIds?.includes('first') && event.removeIds.includes('second'))).toBe(true);
+  });
+
+  it('clears a focused subgraph while keeping the parent graph', async () => {
+    const events: BridgeEvent[] = [];
+    const agent = createAgent({
+      planNodes: [
+        planNode({ id: 'parent', title: 'Implement parent step', status: 'completed', expandable: true, abstraction: 'decomposable', order: 1 }),
+        planNode({ id: 'sibling', title: 'Validate parent step', kind: 'review', status: 'approved', order: 2, abstraction: 'terminal' })
+      ],
+      planEdges: [{ id: 'parent-sibling', source: 'parent', target: 'sibling', kind: 'sequence' }],
+      execution: completedExecution()
+    });
+    const session = new AgentSession('session-1', agent, (event) => events.push(event));
+
+    await session.handleCommand({
+      type: 'constructGraph',
+      commandId: 'cmd-1',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      graphId: 'root',
+      instructions: 'Create ordered plan'
+    });
+
+    const snapshot = session.getSnapshot();
+    const now = '2026-01-01T00:00:01.000Z';
+    snapshot.graphs?.push(
+      {
+        id: 'graph-parent',
+        title: 'Implement parent step',
+        parentNodeId: 'parent',
+        status: 'completed',
+        summary: 'Completed subgraph.',
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        id: 'graph-child-b',
+        title: 'Nested child step',
+        parentNodeId: 'child-b',
+        status: 'idle',
+        createdAt: now,
+        updatedAt: now
+      }
+    );
+    Object.assign(snapshot.nodes.find((node) => node.id === 'parent') ?? {}, {
+      childGraphId: 'graph-parent',
+      expanded: true
+    });
+    snapshot.nodes.push(
+      planNode({ id: 'child-a', title: 'Inspect parent implementation', graphId: 'graph-parent', parentId: 'parent', status: 'completed', order: 1, abstraction: 'terminal' }),
+      planNode({ id: 'child-b', title: 'Update parent implementation', graphId: 'graph-parent', parentId: 'parent', status: 'blocked', childGraphId: 'graph-child-b', order: 2, abstraction: 'decomposable' }),
+      planNode({ id: 'grandchild-a', title: 'Update nested implementation', graphId: 'graph-child-b', parentId: 'child-b', status: 'pending', order: 1, abstraction: 'terminal' })
+    );
+    snapshot.edges.push({ id: 'sequence-child-a-child-b', source: 'child-a', target: 'child-b', kind: 'sequence' });
+    snapshot.pendingToolUses = [{
+      id: 'tool-child',
+      kind: 'patch',
+      nodeId: 'child-b',
+      title: 'Write src/child.ts',
+      description: 'Create child file.',
+      path: 'src/child.ts',
+      proposedContent: 'export const child = true;\n',
+      status: 'pending'
+    }];
+
+    await session.handleCommand({
+      type: 'focusGraph',
+      commandId: 'cmd-2',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      graphId: 'graph-parent'
+    });
+    await session.handleCommand({
+      type: 'clearGraph',
+      commandId: 'cmd-3',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:03.000Z',
+      graphId: 'graph-parent'
+    });
+
+    const cleared = session.getSnapshot();
+    expect(cleared.focusedGraphId).toBe('graph-parent');
+    expect(cleared.nodes.map((node) => node.id)).toEqual(['parent', 'sibling']);
+    expect(cleared.edges.map((edge) => edge.id)).toEqual(['sequence-parent-sibling']);
+    expect(cleared.pendingToolUses).toEqual([]);
+    expect(cleared.graphs?.map((graph) => graph.id)).toEqual(['root', 'graph-parent']);
+    expect(cleared.nodes.find((node) => node.id === 'parent')).toMatchObject({
+      childGraphId: 'graph-parent',
+      expanded: true,
+      status: 'pending'
+    });
+    expect(cleared.graphs?.find((graph) => graph.id === 'graph-parent')).toMatchObject({
+      status: 'idle',
+      summary: undefined
+    });
+    expect(events.some((event) => event.type === 'graphsUpdated' && event.removeIds?.includes('graph-child-b'))).toBe(true);
   });
 
   it('deletes only the selected node and its recursive subgraph nodes', async () => {

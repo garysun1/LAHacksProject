@@ -137,6 +137,7 @@ export type NodesUpdatedEvent = BridgeEventBase & {
     id: string;
     patch: Partial<MegaplanNode>;
   }>;
+  removeIds?: string[];
 };
 
 export type EdgesUpdatedEvent = BridgeEventBase & {
@@ -229,9 +230,11 @@ export type HumanCommandBase = {
 
 export type HumanCommand =
   | (HumanCommandBase & { type: 'startTask'; task: string; workspaceRoot?: string })
+  | (HumanCommandBase & { type: 'hydrateSession'; snapshot: MegaplanGraphSnapshot; workspaceRoot?: string })
   | (HumanCommandBase & { type: 'decomposeNode'; nodeId: string })
   | (HumanCommandBase & { type: 'openNodeGraph'; nodeId: string })
   | (HumanCommandBase & { type: 'constructGraph'; graphId?: string; instructions?: string; workspaceRoot?: string })
+  | (HumanCommandBase & { type: 'clearGraph'; graphId?: string })
   | (HumanCommandBase & { type: 'focusGraph'; graphId: string })
   | (HumanCommandBase & { type: 'runGraph'; graphId?: string })
   | (HumanCommandBase & { type: 'runNode'; nodeId: string })
