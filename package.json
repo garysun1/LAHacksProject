@@ -1,6 +1,6 @@
 {
   "name": "megaplan",
-  "displayName": "Megaplan",
+  "displayName": "Omegaplan",
   "description": "A graph-based VS Code collaboration surface for agent planning, execution, and review.",
   "version": "0.0.1",
   "private": true,
@@ -18,21 +18,21 @@
     "commands": [
       {
         "command": "megaplan.openPanel",
-        "title": "Megaplan: Open Panel"
+        "title": "Omegaplan: Open Panel"
       }
     ],
     "configuration": {
-      "title": "Megaplan",
+      "title": "Omegaplan",
       "properties": {
         "megaplan.bridgeBaseUrl": {
           "type": "string",
           "default": "http://127.0.0.1:37241",
-          "description": "Base URL for the local Megaplan bridge-agent."
+          "description": "Base URL for the local Omegaplan bridge-agent."
         },
         "megaplan.sessionId": {
           "type": "string",
           "default": "",
-          "description": "Optional fixed Megaplan session ID."
+          "description": "Optional fixed Omegaplan session ID."
         },
         "megaplan.autoConnect": {
           "type": "boolean",

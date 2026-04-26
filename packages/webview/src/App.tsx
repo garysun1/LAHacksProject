@@ -122,7 +122,7 @@ export function App(): JSX.Element {
     <main className="app-shell">
       <header className="topbar">
         <div>
-          <h1>Megaplan</h1>
+          <h1>Omegaplan</h1>
           <p>Planning graph and review.</p>
         </div>
         <div className={`connection status-${connection.status}`}>

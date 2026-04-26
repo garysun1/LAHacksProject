@@ -1,10 +1,10 @@
-# Megaplan
+# Omegaplan
 
-Megaplan is a VS Code extension prototype that replaces the chat sidebar with a living graph surface for agent planning, execution, approval, and review.
+Omegaplan is a VS Code extension prototype that replaces the chat sidebar with a living graph surface for agent planning, execution, approval, and review.
 
 ## What this repo contains
 
-- **`packages/extension`**: VS Code extension host that opens the Megaplan Webview Panel, persists sessions, and connects to the local bridge-agent.
+- **`packages/extension`**: VS Code extension host that opens the Omegaplan Webview Panel, persists sessions, and connects to the local bridge-agent.
 - **`packages/webview`**: Vite/React/React Flow UI rendered inside the VS Code webview.
 - **`packages/shared`**: Shared graph schemas, bridge contracts, reducer logic, and graph utilities.
 - **`packages/bridge-agent`**: Local Node/Express bridge-agent that calls OpenAI `gpt-4o`, emits SSE graph events, and executes approval-gated workspace tools.
@@ -58,9 +58,9 @@ Optional environment variables:
 1. Run `npm run compile`.
 2. Start the bridge-agent with `npm run bridge`.
 3. Open this folder in VS Code.
-4. Press `F5` and choose `Run Megaplan Extension`; the Extension Development Host opens `test-workspace` so it has a real workspace folder without reusing the source window.
-5. In the Extension Development Host, run `Megaplan: Open Panel` from the Command Palette.
-6. Submit a task in the Megaplan panel.
+4. Press `F5` and choose `Run Omegaplan Extension`; the Extension Development Host opens `test-workspace` so it has a real workspace folder without reusing the source window.
+5. In the Extension Development Host, run `Omegaplan: Open Panel` from the Command Palette.
+6. Submit a task in the Omegaplan panel.
 
 Sessions are persisted under `.megaplan/sessions/{sessionId}.json` in the workspace. The extension starts with an empty graph when `megaplan.sessionId` is unset and restores a saved graph only when `megaplan.sessionId` is set.
 
@@ -113,7 +113,7 @@ The webview sends human steering commands through the extension host; the bridge
 1. Run `npm run typecheck && npm test && npm run compile`.
 2. Run `npm run bridge`.
 3. Open the extension development host with `F5`.
-4. Run `Megaplan: Open Panel`.
+4. Run `Omegaplan: Open Panel`.
 5. Submit a task and confirm a graph snapshot renders.
 6. Expand a node and confirm child nodes are added.
 7. If a patch approval appears, approve or reject it and confirm the approval status updates in the inspector.

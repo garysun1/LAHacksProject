@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Megaplan Extension",
+      "name": "Run Omegaplan Extension",
       "type": "extensionHost",
       "request": "launch",
       "args": [

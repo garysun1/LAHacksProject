@@ -25,7 +25,7 @@ export class MegaplanPanel {
 
     const panel = vscode.window.createWebviewPanel(
       'megaplan.panel',
-      'Megaplan',
+      'Omegaplan',
       column,
       {
         enableScripts: true,
@@ -171,10 +171,10 @@ export class MegaplanPanel {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} https: data:; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${cspSource};">
   ${styleUri ? `<link rel="stylesheet" href="${styleUri.toString()}">` : ''}
-  <title>Megaplan</title>
+  <title>Omegaplan</title>
 </head>
 <body>
-  <div id="root">Megaplan webview assets have not been built yet. Run <code>npm run build:webview</code>.</div>
+  <div id="root">Omegaplan webview assets have not been built yet. Run <code>npm run build:webview</code>.</div>
   ${scriptUri ? `<script type="module" nonce="${nonce}" src="${scriptUri.toString()}"></script>` : ''}
 </body>
 </html>`;
