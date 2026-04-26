@@ -90,7 +90,7 @@ pre {
 
 .app-shell {
   display: grid;
-  grid-template-rows: 35px auto auto auto 1fr;
+  grid-template-rows: 35px auto auto auto minmax(0, 1fr) auto;
   height: 100vh;
   background: var(--mp-bg);
 }
@@ -186,7 +186,7 @@ pre {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   padding: 8px 10px;
-  border-bottom: 1px solid var(--mp-border);
+  border-top: 1px solid var(--mp-border);
   background: var(--mp-panel);
 }
 
@@ -205,6 +205,10 @@ pre {
   color: var(--vscode-input-placeholderForeground, var(--mp-muted));
 }
 
+.taskbar textarea:disabled {
+  opacity: 0.75;
+}
+
 .taskbar button {
   align-self: stretch;
   background: var(--mp-button);
@@ -213,6 +217,10 @@ pre {
 
 .taskbar button:hover:not(:disabled) {
   background: var(--mp-button-hover);
+}
+
+.error-slot {
+  min-height: 0;
 }
 
 .error-banner {
@@ -361,37 +369,18 @@ pre {
   stroke-width: 1.25;
 }
 
-.react-flow__edge.edge-invalidates .react-flow__edge-path {
-  stroke: var(--mp-danger);
-}
-
-.react-flow__edge.edge-entails .react-flow__edge-path {
-  stroke: var(--mp-muted);
-}
-
-.react-flow__edge-text {
-  fill: var(--mp-muted);
-  font-size: 11px;
-}
-
-.react-flow__edge-textbg {
-  fill: var(--mp-bg);
-}
-
 .megaplan-node {
-  width: 260px;
+  width: 360px;
   border: 1px solid var(--mp-border);
-  border-left: 3px solid var(--mp-muted);
   border-radius: 3px;
   background: var(--mp-panel-alt);
   color: var(--mp-fg);
-  padding: 9px 10px;
+  padding: 8px 9px;
   box-shadow: none;
 }
 
 .megaplan-node:hover {
   border-color: var(--vscode-widget-border, #555555);
-  border-left-color: var(--mp-muted);
 }
 
 .megaplan-node.selected {
@@ -399,77 +388,85 @@ pre {
   box-shadow: 0 0 0 1px var(--mp-focus);
 }
 
-.megaplan-node.low-confidence {
-  border-left-color: var(--mp-warning);
-}
-
 .megaplan-node.impacted {
-  border-left-color: var(--mp-danger);
   box-shadow: inset 0 0 0 1px var(--mp-danger);
-}
-
-.megaplan-node.status-active {
-  border-left-color: var(--mp-active);
 }
 
 .megaplan-node.status-completed,
 .megaplan-node.status-approved {
-  border-left-color: var(--mp-success);
   opacity: 0.82;
 }
 
-.megaplan-node.status-invalidated,
-.megaplan-node.status-rejected {
-  border-left-color: var(--mp-danger);
+.node-content {
+  min-width: 0;
 }
 
-.node-header,
-.node-footer {
+.node-main {
+  min-width: 0;
+}
+
+.node-title-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
+  min-width: 0;
 }
 
-.node-kind,
-.node-badge,
-.node-confidence {
-  color: var(--mp-muted);
-  font-size: 11px;
-  line-height: 1.2;
-  text-transform: uppercase;
+.node-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--mp-muted);
 }
 
-.node-badge {
-  color: var(--mp-warning);
+.megaplan-node.status-active .node-status-dot {
+  background: var(--mp-active);
+}
+
+.megaplan-node.status-completed .node-status-dot,
+.megaplan-node.status-approved .node-status-dot {
+  background: var(--mp-success);
+}
+
+.megaplan-node.status-blocked .node-status-dot {
+  background: var(--mp-warning);
+}
+
+.megaplan-node.status-invalidated .node-status-dot,
+.megaplan-node.status-rejected .node-status-dot {
+  background: var(--mp-danger);
 }
 
 .node-title {
-  margin: 8px 0 5px;
+  overflow: hidden;
+  flex: 1 1 auto;
+  margin: 0;
   color: var(--mp-fg);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.node-summary {
-  color: var(--mp-muted);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.node-footer {
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--mp-border);
-  color: var(--mp-muted);
-  font-size: 12px;
-}
-
-.node-footer button {
+.node-content button {
+  flex: 0 0 auto;
   min-height: 22px;
-  padding: 2px 7px;
+  padding: 1px 7px;
   font-size: 12px;
+}
+
+.node-description {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 6px 0 0 15px;
+  color: var(--mp-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .inspector {

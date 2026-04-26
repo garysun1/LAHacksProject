@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { bridgeEventSchema } from './schemas';
 import { createEmptySnapshot, reduceBridgeEvent } from './graphReducer';
+import { buildSequenceEdges } from './graphUtils';
 import type { BridgeEvent, MegaplanNode, ToolUseRequest } from './types';
 
 const baseNode = (id: string): MegaplanNode => ({
@@ -19,6 +20,26 @@ const baseEvent = (type: BridgeEvent['type']): Pick<BridgeEvent, 'eventId' | 'se
 });
 
 describe('reduceBridgeEvent', () => {
+  it('builds repaired sequence edges from node order', () => {
+    const nodes = [
+      { ...baseNode('third'), order: 3 },
+      { ...baseNode('first'), order: 1 },
+      { ...baseNode('second'), order: 2 },
+      { ...baseNode('second'), title: 'duplicate', order: 4 }
+    ];
+
+    expect(buildSequenceEdges(nodes)).toEqual([
+      { id: 'sequence-first-second', source: 'first', target: 'second', kind: 'sequence' },
+      { id: 'sequence-second-third', source: 'second', target: 'third', kind: 'sequence' }
+    ]);
+  });
+
+  it('builds repaired sequence edges from array order when node order is missing', () => {
+    expect(buildSequenceEdges([baseNode('first'), baseNode('second')])).toEqual([
+      { id: 'sequence-first-second', source: 'first', target: 'second', kind: 'sequence' }
+    ]);
+  });
+
   it('adds nodes and edges', () => {
     const snapshot = createEmptySnapshot('session-1');
     const next = reduceBridgeEvent(snapshot, {
@@ -52,8 +73,8 @@ describe('reduceBridgeEvent', () => {
       type: 'nodesAdded',
       nodes: [baseNode('a'), baseNode('b'), baseNode('c')],
       edges: [
-        { id: 'a-b', source: 'a', target: 'b', kind: 'entailment' },
-        { id: 'b-c', source: 'b', target: 'c', kind: 'dependency' }
+        { id: 'a-b', source: 'a', target: 'b', kind: 'sequence' },
+        { id: 'b-c', source: 'b', target: 'c', kind: 'sequence' }
       ]
     });
 

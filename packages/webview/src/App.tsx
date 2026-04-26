@@ -61,13 +61,23 @@ export function App(): JSX.Element {
   const startTask = useCallback(() => {
     const trimmedTask = task.trim();
 
+    if (focusedGraphId !== (snapshot.rootGraphId ?? 'root') || focusedNodes.length > 0) {
+      sendCommand({ type: 'runGraph', graphId: focusedGraphId });
+      return;
+    }
+
     if (!trimmedTask) {
       return;
     }
 
     sendCommand({ type: 'startTask', task: trimmedTask });
     setTask('');
-  }, [sendCommand, task]);
+  }, [focusedGraphId, focusedNodes.length, sendCommand, snapshot.rootGraphId, task]);
+
+  const runButtonLabel = focusedGraphId === (snapshot.rootGraphId ?? 'root') && focusedNodes.length === 0 ? 'Start task' : 'Run graph';
+  const taskPlaceholder = focusedGraphId === (snapshot.rootGraphId ?? 'root') && focusedNodes.length === 0
+    ? 'Describe the coding task for the bridge-agent...'
+    : 'Run operates on the focused graph.';
 
   return (
     <main className="app-shell">
@@ -83,12 +93,9 @@ export function App(): JSX.Element {
         </div>
       </header>
 
-      <section className="taskbar">
-        <textarea value={task} onChange={(event) => setTask(event.target.value)} placeholder="Describe the coding task for the bridge-agent..." />
-        <button type="button" onClick={startTask}>Start task</button>
-      </section>
-
-      {error ? <div className="error-banner"><span>{error}</span><button type="button" onClick={() => setError(undefined)}>Dismiss</button></div> : null}
+      <div className="error-slot">
+        {error ? <div className="error-banner"><span>{error}</span><button type="button" onClick={() => setError(undefined)}>Dismiss</button></div> : null}
+      </div>
 
       <section className="phase-strip">
         <PhaseCard label="Planning" count={focusedNodes.filter((node) => node.phase === 'planning').length} />
@@ -107,7 +114,6 @@ export function App(): JSX.Element {
         </div>
         <div className="graph-actions">
           <span>{focusedGraph?.status ?? 'idle'}</span>
-          <button type="button" onClick={() => sendCommand({ type: 'runGraph', graphId: focusedGraphId })}>Run graph</button>
         </div>
       </section>
 
@@ -122,7 +128,14 @@ export function App(): JSX.Element {
             onFocusGraph={(graphId) => sendCommand({ type: 'focusGraph', graphId })}
           />
         </div>
-        <NodeInspector node={selectedNode} graphs={snapshot.graphs ?? []} toolUses={snapshot.pendingToolUses ?? []} onCommand={sendCommand} />
+        <aside>
+          <NodeInspector node={selectedNode} graphs={snapshot.graphs ?? []} toolUses={snapshot.pendingToolUses ?? []} onCommand={sendCommand} />
+        </aside>
+      </section>
+
+      <section className="taskbar">
+        <textarea value={task} onChange={(event) => setTask(event.target.value)} placeholder={taskPlaceholder} disabled={runButtonLabel !== 'Start task'} />
+        <button type="button" onClick={startTask}>{runButtonLabel}</button>
       </section>
     </main>
   );

@@ -61,7 +61,7 @@ export class OpenAiAgent {
       messages: [
         {
           role: 'system',
-          content: 'You decompose coding tasks into a concise recursive DAG for Megaplan. Prefer high-level nodes that can become focused subgraphs, mark vague nodes as decomposable, and return graph data only through the provided tool.'
+          content: 'You decompose coding tasks into a concise recursive sequence graph for Megaplan. Each graph is an ordered list of distinct steps; use only sequence edges, avoid dependency/entailment/invalidates semantics, mark broad steps as decomposable, and return graph data only through the provided tool.'
         },
         {
           role: 'user',
@@ -87,7 +87,7 @@ export class OpenAiAgent {
       messages: [
         {
           role: 'system',
-          content: 'You lazily decompose one Megaplan graph node into a focused child subgraph. Keep IDs stable, use the parent ID, make child nodes concrete, and return graph data only through the tool.'
+          content: 'You lazily decompose one Megaplan graph node into a focused child sequence graph. Keep IDs stable, use the parent ID, make child nodes concrete, use only sequence edges between naturally ordered steps, and return graph data only through the tool.'
         },
         {
           role: 'user',
@@ -189,7 +189,7 @@ export class OpenAiAgent {
       nodes,
       edges: [
         { id: 'edge-understand-design', source: nodes[0].id, target: nodes[1].id, kind: 'sequence' },
-        { id: 'edge-design-implement', source: nodes[1].id, target: nodes[2].id, kind: 'dependency' },
+        { id: 'edge-design-implement', source: nodes[1].id, target: nodes[2].id, kind: 'sequence' },
         { id: 'edge-implement-review', source: nodes[2].id, target: nodes[3].id, kind: 'sequence' }
       ]
     };
@@ -271,7 +271,7 @@ function createGraphTool(): OpenAI.Chat.Completions.ChatCompletionTool {
                 id: { type: 'string' },
                 source: { type: 'string' },
                 target: { type: 'string' },
-                kind: { enum: ['sequence', 'dependency', 'entailment', 'invalidates'] }
+                kind: { enum: ['sequence'] }
               }
             }
           }

@@ -40,9 +40,7 @@ export function MegaplanGraph({ snapshot, selectedNodeId, impactedNodeIds, onSel
       id: edge.id,
       source: edge.source,
       target: edge.target,
-      label: edge.kind,
-      animated: edge.kind === 'invalidates',
-      className: `edge-${edge.kind}`
+      className: 'edge-sequence'
     }));
   }, [snapshot.edges]);
 
@@ -62,37 +60,12 @@ export function MegaplanGraph({ snapshot, selectedNodeId, impactedNodeIds, onSel
 }
 
 function getNodePosition(node: MegaplanNodeData, nodes: MegaplanNodeData[]): { x: number; y: number } {
-  const phaseX: Record<MegaplanNodeData['phase'], number> = {
-    planning: 0,
-    execution: 360,
-    review: 720
-  };
-  const siblings = nodes
-    .filter((candidate) => candidate.parentId === node.parentId && candidate.phase === node.phase)
+  const orderedNodes = [...nodes]
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  const siblingIndex = Math.max(0, siblings.findIndex((candidate) => candidate.id === node.id));
-  const depth = getDepth(node, nodes);
+  const nodeIndex = Math.max(0, orderedNodes.findIndex((candidate) => candidate.id === node.id));
 
   return {
-    x: phaseX[node.phase] + depth * 80,
-    y: siblingIndex * 180 + depth * 45
+    x: 0,
+    y: nodeIndex * 150
   };
-}
-
-function getDepth(node: MegaplanNodeData, nodes: MegaplanNodeData[]): number {
-  let depth = 0;
-  let current = node;
-
-  while (current.parentId) {
-    const parent = nodes.find((candidate) => candidate.id === current.parentId);
-
-    if (!parent) {
-      break;
-    }
-
-    current = parent;
-    depth += 1;
-  }
-
-  return depth;
 }

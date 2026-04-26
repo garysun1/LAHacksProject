@@ -14,26 +14,23 @@ export type MegaplanNodeViewData = Record<string, unknown> & MegaplanNodeData & 
 export type MegaplanFlowNode = Node<MegaplanNodeViewData, 'megaplan'>;
 
 export function MegaplanNode({ data }: NodeProps<MegaplanFlowNode>): JSX.Element {
-  const confidence = typeof data.confidence === 'number' ? Math.round(data.confidence * 100) : undefined;
-  const isLowConfidence = typeof data.confidence === 'number' && data.confidence < 0.6;
+  const actionTitle = data.childGraphId ? 'Open subgraph' : 'Open empty subgraph';
+  const actionHandler = data.childGraphId ? () => data.onFocusGraph?.(data.childGraphId ?? '') : () => data.onExpand?.(data.id);
 
   return (
-    <div className={`megaplan-node status-${data.status} kind-${data.kind} ${isLowConfidence ? 'low-confidence' : ''} ${data.impacted ? 'impacted' : ''} ${data.selected ? 'selected' : ''}`}>
-      <Handle type="target" position={Position.Left} />
-      <div className="node-header">
-        <span className="node-kind">{data.kind}</span>
-        {data.pinned ? <span className="node-badge">Pinned</span> : null}
-        {confidence !== undefined ? <span className="node-confidence">{confidence}%</span> : null}
+    <div className={`megaplan-node status-${data.status} ${data.impacted ? 'impacted' : ''} ${data.selected ? 'selected' : ''}`}>
+      <Handle type="target" position={Position.Top} />
+      <div className="node-content">
+        <div className="node-main">
+          <div className="node-title-row">
+            <span className="node-status-dot" title={data.status} />
+            <span className="node-title">{data.title}</span>
+            <button type="button" title={actionTitle} onClick={actionHandler}>Open</button>
+          </div>
+          {data.summary ? <div className="node-description">{data.summary}</div> : null}
+        </div>
       </div>
-      <div className="node-title">{data.title}</div>
-      {data.summary ? <div className="node-summary">{data.summary}</div> : null}
-      <div className="node-footer">
-        <span>{data.status}</span>
-        <button type="button" onClick={() => data.onInspect?.(data.id)}>Review</button>
-        {data.childGraphId ? <button type="button" onClick={() => data.onFocusGraph?.(data.childGraphId ?? '')}>Open</button> : null}
-        {data.expandable ? <button type="button" onClick={() => data.onExpand?.(data.id)}>{data.expanded ? 'Expanded' : 'Expand'}</button> : null}
-      </div>
-      <Handle type="source" position={Position.Right} />
+      <Handle type="source" position={Position.Bottom} />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { createEmptySnapshot, getDownstreamNodeIds, reduceBridgeEvent, type BridgeEvent, type DecisionAlternative, type GraphRunStatus, type HumanCommand, type MegaplanGraphScope, type MegaplanGraphSnapshot, type MegaplanNode, type ToolUseRequest } from '@megaplan/shared';
+import { buildSequenceEdges, createEmptySnapshot, getDownstreamNodeIds, reduceBridgeEvent, type BridgeEvent, type DecisionAlternative, type GraphRunStatus, type HumanCommand, type MegaplanGraphScope, type MegaplanGraphSnapshot, type MegaplanNode, type ToolUseRequest } from '@megaplan/shared';
 import { OpenAiAgent } from '../openai/OpenAiAgent';
 import { fileWriteRequiresApproval } from '../tools/toolPolicy';
 import { listWorkspaceFiles, writeWorkspaceFile } from '../tools/workspaceTools';
@@ -94,10 +94,11 @@ export class AgentSession {
     };
 
     const proposal = await this.agent.planTask(this.sessionId, task);
+    const nodes = this.normalizeNodes(proposal.nodes, ROOT_GRAPH_ID);
     this.snapshot = {
       ...this.snapshot,
-      nodes: this.normalizeNodes(proposal.nodes, ROOT_GRAPH_ID),
-      edges: proposal.edges,
+      nodes,
+      edges: buildSequenceEdges(nodes),
       updatedAt: createdAt
     };
 
@@ -107,7 +108,6 @@ export class AgentSession {
       ...this.eventBase()
     });
 
-    void this.runGraph(ROOT_GRAPH_ID);
   }
 
   private async decomposeNode(nodeId: string): Promise<void> {
@@ -118,25 +118,12 @@ export class AgentSession {
       return;
     }
 
-    const context = this.snapshot.eventLog?.slice(-20).map((event) => `${event.type}:${event.eventId}`).join('\n') ?? '';
-    const proposal = await this.agent.decomposeNode(this.sessionId, node, context);
     const graphId = node.childGraphId ?? `graph-${node.id}`;
     const now = new Date().toISOString();
-    const childGraph = this.createGraphScope(graphId, node.title, node.id, now);
-    const nodes = this.normalizeNodes(proposal.nodes, graphId, node.id);
+    const childGraph = this.snapshot.graphs?.find((graph) => graph.id === graphId) ?? this.createGraphScope(graphId, node.title, node.id, now, node.summary);
 
-    this.emit({
-      type: 'graphsUpdated',
-      upsert: [childGraph],
-      ...this.eventBase()
-    });
-    this.emit({
-      type: 'nodesAdded',
-      nodes,
-      edges: proposal.edges,
-      ...this.eventBase()
-    });
-    this.updateNode(nodeId, { childGraphId: graphId, expanded: true, abstraction: 'decomposable' });
+    this.emit({ type: 'graphsUpdated', upsert: [childGraph], ...this.eventBase() });
+    this.updateNode(nodeId, { childGraphId: graphId, expanded: true });
     this.focusGraph(graphId);
   }
 
@@ -168,7 +155,7 @@ export class AgentSession {
     const alternatives = this.markAlternativePromoted(node.alternatives ?? [], alternativeId, graphId);
 
     this.emit({ type: 'graphsUpdated', upsert: [childGraph], ...this.eventBase() });
-    this.emit({ type: 'nodesAdded', nodes, edges: proposal.edges, ...this.eventBase() });
+    this.emit({ type: 'nodesAdded', nodes, edges: buildSequenceEdges(nodes), ...this.eventBase() });
     this.updateNode(nodeId, {
       selectedAlternativeId: alternativeId,
       alternatives,
@@ -210,6 +197,10 @@ export class AgentSession {
     this.emitGraphRunState(graphId, 'running');
 
     try {
+      if (await this.runEmptyGraph(graphId)) {
+        return;
+      }
+
       while (true) {
         const nextNode = this.nextRunnableNode(graphId);
 
@@ -226,39 +217,68 @@ export class AgentSession {
     }
   }
 
-  private async executeNode(node: MegaplanNode): Promise<void> {
+  private async runEmptyGraph(graphId: string): Promise<boolean> {
+    if (this.getGraphNodes(graphId).length > 0) {
+      return false;
+    }
+
+    const graph = this.snapshot.graphs?.find((candidate) => candidate.id === graphId);
+
+    if (!graph?.parentNodeId) {
+      this.emitGraphRunState(graphId, 'completed', 'No nodes to run.');
+      return true;
+    }
+
+    const parentNode = this.snapshot.nodes.find((node) => node.id === graph.parentNodeId);
+
+    if (!parentNode) {
+      this.emitAgentError(`Cannot run empty graph without parent node: ${graphId}`, true);
+      this.emitGraphRunState(graphId, 'error');
+      return true;
+    }
+
+    if (this.shouldGenerateSubgraph(parentNode)) {
+      await this.populateGraphFromNode(parentNode, graphId);
+      this.emitGraphRunState(graphId, 'idle', 'Generated subgraph.');
+      return true;
+    }
+
+    await this.executeNode(parentNode, { ignoreChildGraph: true });
+
+    const updatedParent = this.snapshot.nodes.find((node) => node.id === parentNode.id);
+    this.emitGraphRunState(graphId, updatedParent?.status === 'blocked' ? 'blocked' : 'completed');
+    return true;
+  }
+
+  private async populateGraphFromNode(node: MegaplanNode, graphId: string): Promise<void> {
+    const context = this.snapshot.eventLog?.slice(-20).map((event) => `${event.type}:${event.eventId}`).join('\n') ?? '';
+    const proposal = await this.agent.decomposeNode(this.sessionId, node, context);
+    const nodes = this.normalizeNodes(proposal.nodes, graphId, node.id);
+
+    this.emit({ type: 'nodesAdded', nodes, edges: buildSequenceEdges(nodes), ...this.eventBase() });
+    this.updateNode(node.id, { childGraphId: graphId, expanded: true, abstraction: 'decomposable' });
+  }
+
+  private shouldGenerateSubgraph(node: MegaplanNode): boolean {
+    return node.expandable === true || node.abstraction === 'abstract' || node.abstraction === 'decomposable';
+  }
+
+  private async executeNode(node: MegaplanNode, options: { ignoreChildGraph?: boolean } = {}): Promise<void> {
     this.emit({ type: 'activeNodeChanged', activeNodeId: node.id, ...this.eventBase() });
 
-    if (node.childGraphId) {
+    if (node.childGraphId && !options.ignoreChildGraph) {
       await this.runGraph(node.childGraphId);
 
       if (this.graphHasBlockedNodes(node.childGraphId)) {
         this.updateNode(node.id, { status: 'blocked' });
+      } else if (this.graphHasPendingNodes(node.childGraphId)) {
+        this.updateNode(node.id, { status: 'pending' });
       } else {
         this.updateNode(node.id, { status: 'completed', summary: `Completed subgraph ${node.childGraphId}.` });
       }
 
       this.emit({ type: 'activeNodeChanged', activeNodeId: undefined, ...this.eventBase() });
       return;
-    }
-
-    if (node.expandable && node.abstraction !== 'terminal') {
-      await this.decomposeNode(node.id);
-
-      const updatedNode = this.snapshot.nodes.find((candidate) => candidate.id === node.id);
-
-      if (updatedNode?.childGraphId) {
-        await this.runGraph(updatedNode.childGraphId);
-
-        if (this.graphHasBlockedNodes(updatedNode.childGraphId)) {
-          this.updateNode(node.id, { status: 'blocked' });
-        } else {
-          this.updateNode(node.id, { status: 'completed', summary: `Completed subgraph ${updatedNode.childGraphId}.` });
-        }
-
-        this.emit({ type: 'activeNodeChanged', activeNodeId: undefined, ...this.eventBase() });
-        return;
-      }
     }
 
     const workspaceSummary = this.workspaceRoot ? await summarizeWorkspace(this.workspaceRoot) : 'No workspace root provided.';
@@ -296,7 +316,7 @@ export class AgentSession {
         summary: result.proposedPatch.description,
         entailedBy: [node.id]
       };
-      this.emit({ type: 'approvalRequested', node: approvalNode, toolUse, edges: [{ id: `${node.id}-${approvalNode.id}`, source: node.id, target: approvalNode.id, kind: 'entailment' }], ...this.eventBase() });
+      this.emit({ type: 'approvalRequested', node: approvalNode, toolUse, edges: [{ id: `${node.id}-${approvalNode.id}`, source: node.id, target: approvalNode.id, kind: 'sequence' }], ...this.eventBase() });
       this.updateNode(node.id, { status: 'blocked', summary: result.summary, rationale: result.rationale, confidence: result.confidence });
       this.emit({ type: 'activeNodeChanged', activeNodeId: undefined, ...this.eventBase() });
       return;
@@ -319,7 +339,7 @@ export class AgentSession {
         }
 
         const graphNodeIds = new Set(this.snapshot.nodes.filter((candidate) => (candidate.graphId ?? ROOT_GRAPH_ID) === graphId).map((candidate) => candidate.id));
-        const dependencies = this.snapshot.edges.filter((edge) => graphNodeIds.has(edge.source) && edge.target === node.id && (edge.kind === 'dependency' || edge.kind === 'sequence'));
+        const dependencies = this.snapshot.edges.filter((edge) => graphNodeIds.has(edge.source) && edge.target === node.id);
         return dependencies.every((edge) => completed.has(edge.source));
       });
   }
@@ -451,6 +471,14 @@ export class AgentSession {
 
   private graphHasBlockedNodes(graphId: string): boolean {
     return this.snapshot.nodes.some((node) => (node.graphId ?? ROOT_GRAPH_ID) === graphId && ['blocked', 'invalidated', 'rejected'].includes(node.status));
+  }
+
+  private graphHasPendingNodes(graphId: string): boolean {
+    return this.snapshot.nodes.some((node) => (node.graphId ?? ROOT_GRAPH_ID) === graphId && node.status === 'pending');
+  }
+
+  private getGraphNodes(graphId: string): MegaplanNode[] {
+    return this.snapshot.nodes.filter((node) => (node.graphId ?? ROOT_GRAPH_ID) === graphId);
   }
 
   private emitGraphRunState(graphId: string, status: GraphRunStatus, message?: string): void {

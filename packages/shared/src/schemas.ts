@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const graphPhaseSchema = z.enum(['planning', 'execution', 'review']);
 export const nodeStatusSchema = z.enum(['pending', 'active', 'completed', 'blocked', 'invalidated', 'approved', 'rejected']);
 export const nodeKindSchema = z.enum(['task', 'decision', 'action', 'review', 'observation', 'approval']);
-export const edgeKindSchema = z.enum(['sequence', 'dependency', 'entailment', 'invalidates']);
+export const edgeKindSchema = z.enum(['sequence']);
 export const nodeAbstractionSchema = z.enum(['abstract', 'decomposable', 'runnable', 'terminal']);
 export const alternativeStatusSchema = z.enum(['candidate', 'selected', 'rejected']);
 export const graphRunStatusSchema = z.enum(['idle', 'running', 'completed', 'blocked', 'error']);

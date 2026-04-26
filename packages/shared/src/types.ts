@@ -4,7 +4,7 @@ export type GraphPhase = 'planning' | 'execution' | 'review';
 
 export type NodeStatus = 'pending' | 'active' | 'completed' | 'blocked' | 'invalidated' | 'approved' | 'rejected';
 
-export type EdgeKind = 'sequence' | 'dependency' | 'entailment' | 'invalidates';
+export type EdgeKind = 'sequence';
 
 export type ArtifactKind = 'file' | 'range' | 'patch' | 'command' | 'observation' | 'diagnostic' | 'tool';
 

@@ -54,14 +54,42 @@ export function assertAcyclic(nodes: MegaplanNode[], edges: MegaplanEdge[]): voi
   }
 }
 
+export function buildSequenceEdges(nodes: MegaplanNode[]): MegaplanEdge[] {
+  const orderedNodes = nodes
+    .map((node, index) => ({
+      node,
+      index,
+      order: typeof node.order === 'number' ? node.order : index + 1
+    }))
+    .sort((left, right) => left.order - right.order || left.index - right.index);
+  const seen = new Set<string>();
+  const uniqueNodes: MegaplanNode[] = [];
+
+  for (const { node } of orderedNodes) {
+    if (seen.has(node.id)) {
+      continue;
+    }
+
+    seen.add(node.id);
+    uniqueNodes.push(node);
+  }
+
+  return uniqueNodes.slice(1).map((node, index) => {
+    const source = uniqueNodes[index].id;
+    const target = node.id;
+    return {
+      id: `sequence-${source}-${target}`,
+      source,
+      target,
+      kind: 'sequence'
+    };
+  });
+}
+
 export function getDownstreamNodeIds(startNodeId: string, edges: MegaplanEdge[]): string[] {
   const adjacency = new Map<string, string[]>();
 
   for (const edge of edges) {
-    if (edge.kind !== 'dependency' && edge.kind !== 'entailment' && edge.kind !== 'sequence') {
-      continue;
-    }
-
     adjacency.set(edge.source, [...(adjacency.get(edge.source) ?? []), edge.target]);
   }
 
