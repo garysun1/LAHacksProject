@@ -25,6 +25,7 @@ export class AgentSession {
   private workspaceRoot?: string;
   private readonly runningGraphIds = new Set<string>();
   private readonly graphRunContextIds = new Set<string>();
+  private readonly pendingGraphResumeIds = new Set<string>();
   private readonly graphRunApprovalToolUses = new Map<string, string>();
   private readonly approvedToolUses = new Set<string>();
   private readonly rejectedToolUses = new Set<string>();
@@ -68,8 +69,10 @@ export class AgentSession {
         this.reorderNodes(command.orderedNodeIds, command.parentId);
         break;
       case 'deleteNode':
-        this.updateNode(command.nodeId, { status: 'rejected' });
-        this.invalidateDownstream(command.nodeId, 'Deleted by user.');
+        this.deleteNode(command.nodeId);
+        break;
+      case 'updateNodeDetails':
+        this.updateNodeDetails(command.nodeId, { title: command.title, summary: command.summary, rationale: command.rationale });
         break;
       case 'pinNode':
         this.updateNode(command.nodeId, { pinned: command.pinned });
@@ -285,6 +288,7 @@ export class AgentSession {
 
       const status = this.graphHasBlockedNodes(graphId) ? 'blocked' : this.graphHasPendingNodes(graphId) ? 'idle' : 'completed';
       this.emitGraphRunState(graphId, status);
+      this.updateParentAfterGraphRun(graphId, status);
 
       if (status !== 'blocked') {
         this.emit({ type: 'activeNodeChanged', activeNodeId: undefined, ...this.eventBase() });
@@ -292,6 +296,10 @@ export class AgentSession {
     } finally {
       this.graphRunContextIds.delete(graphId);
       this.runningGraphIds.delete(graphId);
+
+      if (this.pendingGraphResumeIds.delete(graphId)) {
+        await this.runGraph(graphId);
+      }
     }
   }
 
@@ -464,6 +472,27 @@ export class AgentSession {
     this.updateNode(node.id, { status: 'completed', summary: `Completed subgraph ${graphId}.` });
   }
 
+  private updateParentAfterGraphRun(graphId: string, status: GraphRunStatus): void {
+    const graph = this.snapshot.graphs?.find((candidate) => candidate.id === graphId);
+
+    if (!graph?.parentNodeId || status === 'blocked') {
+      return;
+    }
+
+    const parentNode = this.snapshot.nodes.find((candidate) => candidate.id === graph.parentNodeId);
+
+    if (!parentNode) {
+      return;
+    }
+
+    this.updateParentNodeFromChildGraph(parentNode, graphId);
+
+    if (status === 'completed') {
+      this.focusParentGraph(parentNode);
+      this.emit({ type: 'activeNodeChanged', activeNodeId: parentNode.id, ...this.eventBase() });
+    }
+  }
+
   private async populateGraphFromNode(node: MegaplanNode, graphId: string, instructions?: string): Promise<boolean> {
     const { context, info } = this.buildDecompositionContext(node, instructions);
     const proposal = await this.agent.decomposeNode(this.sessionId, node, context);
@@ -530,10 +559,10 @@ export class AgentSession {
 
     if (result.proposedPatch && this.workspaceRoot) {
       const toolUse = this.createPatchToolUse(node.id, result.proposedPatch.path, result.proposedPatch.content, result.proposedPatch.description);
-      const graphId = node.graphId ?? ROOT_GRAPH_ID;
+      const resumeGraphId = this.getActiveGraphRunForNode(node);
 
-      if (this.graphRunContextIds.has(graphId)) {
-        this.graphRunApprovalToolUses.set(toolUse.id, graphId);
+      if (resumeGraphId) {
+        this.graphRunApprovalToolUses.set(toolUse.id, resumeGraphId);
       }
 
       this.emit({ type: 'approvalRequested', toolUse, ...this.eventBase() });
@@ -563,11 +592,40 @@ export class AgentSession {
       });
   }
 
+  private getActiveGraphRunForNode(node: MegaplanNode): string | undefined {
+    let graphId = node.graphId ?? ROOT_GRAPH_ID;
+
+    while (true) {
+      if (this.graphRunContextIds.has(graphId)) {
+        return graphId;
+      }
+
+      const graph = this.snapshot.graphs?.find((candidate) => candidate.id === graphId);
+
+      if (!graph?.parentNodeId) {
+        return undefined;
+      }
+
+      const parentNode = this.snapshot.nodes.find((candidate) => candidate.id === graph.parentNodeId);
+
+      if (!parentNode) {
+        return undefined;
+      }
+
+      graphId = parentNode.graphId ?? ROOT_GRAPH_ID;
+    }
+  }
+
   private async approveToolUse(toolUseId: string): Promise<void> {
     const toolUse = this.snapshot.pendingToolUses?.find((candidate) => candidate.id === toolUseId);
 
     if (!toolUse) {
       this.emitAgentError(`Cannot approve missing tool use: ${toolUseId}`, true);
+      return;
+    }
+
+    if (toolUse.status !== 'pending') {
+      this.emitAgentError(`Cannot approve tool use ${toolUseId} with status ${toolUse.status}.`, true);
       return;
     }
 
@@ -606,7 +664,7 @@ export class AgentSession {
         }
 
         if (resumeGraphId) {
-          await this.runGraph(resumeGraphId);
+          await this.resumeGraphRun(resumeGraphId);
         } else {
           this.emit({ type: 'activeNodeChanged', activeNodeId: undefined, ...this.eventBase() });
         }
@@ -633,12 +691,99 @@ export class AgentSession {
     }
   }
 
+  private async resumeGraphRun(graphId: string): Promise<void> {
+    if (this.runningGraphIds.has(graphId)) {
+      this.pendingGraphResumeIds.add(graphId);
+      return;
+    }
+
+    await this.runGraph(graphId);
+  }
+
   private updateToolUse(toolUseId: string, status: ToolUseRequest['status']): void {
     this.emit({ type: 'toolUseUpdated', toolUseId, patch: { status }, ...this.eventBase() });
   }
 
   private updateNode(nodeId: string, patch: Partial<MegaplanNode>): void {
     this.emit({ type: 'nodesUpdated', patches: [{ id: nodeId, patch }], ...this.eventBase() });
+  }
+
+  private updateNodeDetails(nodeId: string, details: Pick<Partial<MegaplanNode>, 'title' | 'summary' | 'rationale'>): void {
+    const node = this.snapshot.nodes.find((candidate) => candidate.id === nodeId);
+
+    if (!node) {
+      this.emitAgentError(`Cannot update missing node: ${nodeId}`, true);
+      return;
+    }
+
+    const patch: Pick<Partial<MegaplanNode>, 'title' | 'summary' | 'rationale'> = {};
+    const title = details.title?.trim();
+    const summary = details.summary?.trim();
+    const rationale = details.rationale?.trim();
+
+    if (title) {
+      patch.title = title;
+    }
+
+    if (summary) {
+      patch.summary = summary;
+    }
+
+    if (details.rationale !== undefined) {
+      patch.rationale = rationale || undefined;
+    }
+
+    if (Object.keys(patch).length > 0) {
+      this.updateNode(nodeId, patch);
+    }
+  }
+
+  private deleteNode(nodeId: string): void {
+    const node = this.snapshot.nodes.find((candidate) => candidate.id === nodeId);
+
+    if (!node) {
+      this.emitAgentError(`Cannot delete missing node: ${nodeId}`, true);
+      return;
+    }
+
+    const impactedNodeIds = this.getRecursiveSubgraphNodeIds(nodeId);
+    const invalidatedNodeIds = new Set([nodeId, ...impactedNodeIds]);
+
+    for (const toolUse of this.snapshot.pendingToolUses ?? []) {
+      if (toolUse.status === 'pending' && invalidatedNodeIds.has(toolUse.nodeId)) {
+        this.rejectedToolUses.add(toolUse.id);
+        this.graphRunApprovalToolUses.delete(toolUse.id);
+        this.updateToolUse(toolUse.id, 'rejected');
+      }
+    }
+
+    this.emit({ type: 'nodeInvalidated', nodeId, reason: 'Deleted by user.', impactedNodeIds, ...this.eventBase() });
+  }
+
+  private getRecursiveSubgraphNodeIds(nodeId: string): string[] {
+    const impactedNodeIds = new Set<string>();
+    const visitedNodeIds = new Set<string>();
+
+    const visitNode = (currentNodeId: string): void => {
+      if (visitedNodeIds.has(currentNodeId)) {
+        return;
+      }
+
+      visitedNodeIds.add(currentNodeId);
+      const currentNode = this.snapshot.nodes.find((candidate) => candidate.id === currentNodeId);
+
+      if (!currentNode?.childGraphId) {
+        return;
+      }
+
+      for (const childNode of this.getGraphNodes(currentNode.childGraphId)) {
+        impactedNodeIds.add(childNode.id);
+        visitNode(childNode.id);
+      }
+    };
+
+    visitNode(nodeId);
+    return Array.from(impactedNodeIds);
   }
 
   private refreshAncestorStatusesFrom(node: MegaplanNode): void {
@@ -946,7 +1091,7 @@ export class AgentSession {
   }
 
   private graphHasBlockedNodes(graphId: string): boolean {
-    return this.snapshot.nodes.some((node) => (node.graphId ?? ROOT_GRAPH_ID) === graphId && ['blocked', 'invalidated', 'rejected'].includes(node.status));
+    return this.snapshot.nodes.some((node) => (node.graphId ?? ROOT_GRAPH_ID) === graphId && node.status === 'blocked');
   }
 
   private graphHasPendingNodes(graphId: string): boolean {

@@ -202,6 +202,7 @@ export const humanCommandSchema = z.discriminatedUnion('type', [
   humanCommandBaseSchema.extend({ type: z.literal('runNode'), nodeId: z.string().min(1) }),
   humanCommandBaseSchema.extend({ type: z.literal('reorderNodes'), parentId: z.string().optional(), orderedNodeIds: z.array(z.string()) }),
   humanCommandBaseSchema.extend({ type: z.literal('deleteNode'), nodeId: z.string().min(1) }),
+  humanCommandBaseSchema.extend({ type: z.literal('updateNodeDetails'), nodeId: z.string().min(1), title: z.string().min(1).optional(), summary: z.string().min(1).optional(), rationale: z.string().optional() }),
   humanCommandBaseSchema.extend({ type: z.literal('pinNode'), nodeId: z.string().min(1), pinned: z.boolean() }),
   humanCommandBaseSchema.extend({ type: z.literal('selectAlternative'), nodeId: z.string().min(1), alternativeId: z.string().min(1) }),
   humanCommandBaseSchema.extend({ type: z.literal('approveNode'), nodeId: z.string().min(1) }),

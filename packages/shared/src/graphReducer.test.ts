@@ -261,6 +261,15 @@ describe('reduceBridgeEvent', () => {
       type: 'runNode',
       nodeId: 'node-1'
     })).toMatchObject({ type: 'runNode' });
+    expect(humanCommandSchema.parse({
+      commandId: 'cmd-4',
+      sessionId: 'session-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      type: 'updateNodeDetails',
+      nodeId: 'node-1',
+      title: 'Updated title',
+      summary: 'Updated summary'
+    })).toMatchObject({ type: 'updateNodeDetails' });
   });
 
   it('requires node summaries through the shared schema', () => {

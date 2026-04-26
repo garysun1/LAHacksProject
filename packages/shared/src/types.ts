@@ -237,6 +237,7 @@ export type HumanCommand =
   | (HumanCommandBase & { type: 'runNode'; nodeId: string })
   | (HumanCommandBase & { type: 'reorderNodes'; parentId?: string; orderedNodeIds: string[] })
   | (HumanCommandBase & { type: 'deleteNode'; nodeId: string })
+  | (HumanCommandBase & { type: 'updateNodeDetails'; nodeId: string; title?: string; summary?: string; rationale?: string })
   | (HumanCommandBase & { type: 'pinNode'; nodeId: string; pinned: boolean })
   | (HumanCommandBase & { type: 'selectAlternative'; nodeId: string; alternativeId: string })
   | (HumanCommandBase & { type: 'approveNode'; nodeId: string })
